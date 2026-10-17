@@ -17,6 +17,11 @@
     </script>
     <!-- PageFlip JS for true 3D page bending & physical peel mechanics -->
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+    <!-- Firebase: set firebaseConfig below to your Firebase web app configuration. -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
@@ -226,8 +231,8 @@
     </div>
 
     <!-- Audio Settings Modal -->
-    <div id="audio-modal" class="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-xl shadow-xl border border-neutral-200 w-full max-w-sm p-6 relative">
+    <div id="audio-modal" class="fixed inset-0 bg-violet-950/25 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gradient-to-br from-white via-white to-violet-50 rounded-2xl shadow-2xl shadow-violet-950/10 border border-violet-100 w-full max-w-sm p-6 relative">
             <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
                 <span class="text-xs font-semibold text-neutral-900">Audio & Background Music</span>
                 <button onclick="closeAudioSettings()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -250,7 +255,7 @@
                         <span>Background Music Volume</span>
                         <span id="bgm-vol-val">30%</span>
                     </div>
-                    <input type="range" id="bgm-volume" min="0" max="1" step="0.05" value="0.3" oninput="setBgmVolume(this.value)" class="w-full accent-neutral-900">
+                    <input type="range" id="bgm-volume" min="0" max="1" step="0.05" value="0.3" oninput="setBgmVolume(this.value)" class="w-full accent-violet-500">
                 </div>
 
                 <div>
@@ -258,7 +263,7 @@
                         <span>Page Flip Sound Effect Volume</span>
                         <span id="flip-vol-val">60%</span>
                     </div>
-                    <input type="range" id="flip-volume" min="0" max="1" step="0.05" value="0.6" oninput="setFlipVolume(this.value)" class="w-full accent-neutral-900">
+                    <input type="range" id="flip-volume" min="0" max="1" step="0.05" value="0.6" oninput="setFlipVolume(this.value)" class="w-full accent-violet-500">
                 </div>
             </div>
 
@@ -269,8 +274,8 @@
     </div>
 
     <!-- Share Modal -->
-    <div id="share-modal" class="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-xl shadow-xl border border-neutral-200 w-full max-w-md p-6 relative">
+    <div id="share-modal" class="fixed inset-0 bg-violet-950/25 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gradient-to-br from-white via-white to-orange-50 rounded-2xl shadow-2xl shadow-violet-950/10 border border-violet-100 w-full max-w-md p-6 relative">
             <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
                 <span class="text-xs font-semibold text-neutral-900">Share Flippable Book</span>
                 <button onclick="closeShareModal()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
@@ -307,7 +312,8 @@
             customAudioData: null,
             bgmVolume: 0.3,
             flipVolume: 0.6,
-            fileName: 'publication.pdf'
+            fileName: 'publication.pdf',
+            hasCompletionPage: false
         };
 
         let pageFlipInstance = null;
@@ -315,6 +321,112 @@
         let bgmOscillators = [];
         let bgmGainNode = null;
         let customAudioEl = null;
+        const flipAudio = new Audio('flip.mp3');
+        flipAudio.preload = 'auto';
+        let firebaseApp = null;
+        const firebaseConfig = {
+            apiKey: 'YOUR_FIREBASE_API_KEY',
+            authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
+            projectId: 'YOUR_PROJECT_ID',
+            storageBucket: 'YOUR_PROJECT_ID.appspot.com',
+            appId: 'YOUR_FIREBASE_APP_ID'
+        };
+
+        function getFirebase() {
+            if (firebaseApp) return firebaseApp;
+            if (!window.firebase || firebaseConfig.apiKey.startsWith('YOUR_')) {
+                throw new Error('Firebase is not configured yet. Add your Firebase web app settings first.');
+            }
+            firebaseApp = firebase.initializeApp(firebaseConfig);
+            return firebaseApp;
+        }
+
+        function signInForSharing() {
+            const app = getFirebase();
+            return app.auth().currentUser
+                ? Promise.resolve(app.auth().currentUser)
+                : app.auth().signInAnonymously().then(result => result.user);
+        }
+
+        function makeCompletionPage() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 1100;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 800, 1100);
+            gradient.addColorStop(0, '#fff7ed');
+            gradient.addColorStop(1, '#f3e8ff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#7c3aed';
+            ctx.beginPath();
+            ctx.arc(400, 380, 54, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(375, 380);
+            ctx.lineTo(393, 398);
+            ctx.lineTo(427, 360);
+            ctx.stroke();
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#27213a';
+            ctx.font = '600 46px Inter, sans-serif';
+            ctx.fillText("You're all done", 400, 500);
+            ctx.fillStyle = '#756b82';
+            ctx.font = '22px Inter, sans-serif';
+            ctx.fillText('Thanks for reading', 400, 548);
+            return canvas.toDataURL('image/jpeg', 0.92);
+        }
+
+        function appendCompletionPage() {
+            if (state.hasCompletionPage) return;
+            state.pages.push(makeCompletionPage());
+            state.hasCompletionPage = true;
+        }
+
+        async function loadSharedBook(bookId) {
+            try {
+                const app = getFirebase();
+                const snapshot = await app.firestore().collection('sharedBooks').doc(bookId).get();
+                if (!snapshot.exists) throw new Error('This shared book could not be found.');
+                const book = snapshot.data();
+                state.pages = book.pageUrls || [];
+                if (!state.pages.length) throw new Error('This shared book has no pages.');
+                state.fileName = book.fileName || 'Shared publication.pdf';
+                state.sound = book.sound !== false;
+                state.bgm = book.bgm === true;
+                state.bgmTrack = book.bgmTrack || 'piano';
+                state.customAudioData = book.customAudioUrl || null;
+                state.bgmVolume = Number.isFinite(book.bgmVolume) ? book.bgmVolume : 0.3;
+                state.flipVolume = Number.isFinite(book.flipVolume) ? book.flipVolume : 0.6;
+                state.hasCompletionPage = true;
+                launchReader();
+                if (state.bgm) {
+                    startBgm();
+                    document.addEventListener('pointerdown', () => {
+                        if (state.bgm) startBgm();
+                    }, { once: true });
+                }
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || 'Unable to load the shared book');
+            }
+        }
+
+        function openSharedBookFromUrl() {
+            const match = location.hash.match(/^#book=([A-Za-z0-9_-]+)$/);
+            if (!match) return;
+            document.getElementById('view-workspace').classList.add('hidden');
+            document.getElementById('view-reader').classList.remove('hidden');
+            document.getElementById('nav-actions').classList.add('hidden');
+            showToast('Loading shared book...');
+            loadSharedBook(match[1]);
+        }
+
+        window.addEventListener('DOMContentLoaded', openSharedBookFromUrl);
 
         function getAudioContext() {
             if (!window.audioCtx) {
@@ -330,6 +442,13 @@
         // Realistic Synthesized Paper Rustle Audio Engine
         function playFlipAudio() {
             if (!state.sound) return;
+            if (flipAudio.readyState >= 2) {
+                flipAudio.pause();
+                flipAudio.currentTime = 0;
+                flipAudio.volume = state.flipVolume;
+                flipAudio.play().catch(() => {});
+                return;
+            }
             try {
                 const ctx = getAudioContext();
                 const bufferSize = ctx.sampleRate * 0.22; 
@@ -449,6 +568,7 @@
         function setFlipVolume(val) {
             state.flipVolume = parseFloat(val);
             document.getElementById('flip-vol-val').innerText = Math.round(state.flipVolume * 100) + '%';
+            flipAudio.volume = state.flipVolume;
         }
 
         function changeBgmTrack(val) {
@@ -506,6 +626,7 @@
 
         async function processPDF(file) {
             state.fileName = file.name;
+            state.hasCompletionPage = false;
             showToast('Parsing and rendering PDF...');
             try {
                 const buffer = await file.arrayBuffer();
@@ -538,6 +659,7 @@
 
         function loadSampleBook(type) {
             showToast('Building sample book...');
+            state.hasCompletionPage = false;
             let pages = [];
             for (let i = 1; i <= 8; i++) {
                 const canvas = document.createElement('canvas');
@@ -584,7 +706,13 @@
         }
 
         function launchReader() {
+            appendCompletionPage();
             state.currentPage = 0;
+            document.getElementById('bgm-select').value = state.bgmTrack;
+            document.getElementById('bgm-volume').value = state.bgmVolume;
+            document.getElementById('flip-volume').value = state.flipVolume;
+            document.getElementById('bgm-vol-val').innerText = Math.round(state.bgmVolume * 100) + '%';
+            document.getElementById('flip-vol-val').innerText = Math.round(state.flipVolume * 100) + '%';
             switchView('reader');
             buildThumbnails();
             initStPageFlip();
@@ -817,8 +945,64 @@
         }
 
         function copyShareLink() {
-            showToast('Share link copied to clipboard!');
-            closeShareModal();
+            createShareLink();
+        }
+
+        async function createShareLink() {
+            const shareButton = document.querySelector('#share-modal button[onclick="copyShareLink()"]');
+            const originalLabel = shareButton ? shareButton.innerText : '';
+            try {
+                if (!state.pages.length) throw new Error('Load a book before sharing it.');
+                if (shareButton) {
+                    shareButton.disabled = true;
+                    shareButton.innerText = 'Saving book and audio…';
+                }
+                const app = getFirebase();
+                const user = await signInForSharing();
+                const bookId = app.firestore().collection('sharedBooks').doc().id;
+                const storage = app.storage();
+                const pageUrls = await Promise.all(state.pages.map(async (pageData, index) => {
+                    if (/^https?:\/\//i.test(pageData)) return pageData;
+                    const path = `books/${user.uid}/${bookId}/pages/${String(index + 1).padStart(4, '0')}.jpg`;
+                    const ref = storage.ref(path);
+                    await ref.putString(pageData, 'data_url', { contentType: 'image/jpeg' });
+                    return ref.getDownloadURL();
+                }));
+                let customAudioUrl = null;
+                if (state.bgmTrack === 'custom' && state.customAudioData) {
+                    if (/^https?:\/\//i.test(state.customAudioData)) {
+                        customAudioUrl = state.customAudioData;
+                    } else {
+                        const audioRef = storage.ref(`books/${user.uid}/${bookId}/audio/custom-track`);
+                        await audioRef.putString(state.customAudioData, 'data_url');
+                        customAudioUrl = await audioRef.getDownloadURL();
+                    }
+                }
+                await app.firestore().collection('sharedBooks').doc(bookId).set({
+                    ownerUid: user.uid,
+                    fileName: state.fileName,
+                    pageUrls,
+                    sound: state.sound,
+                    bgm: state.bgm,
+                    bgmTrack: state.bgmTrack,
+                    customAudioUrl,
+                    bgmVolume: state.bgmVolume,
+                    flipVolume: state.flipVolume,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                const shareUrl = `${location.origin}${location.pathname}#book=${bookId}`;
+                await navigator.clipboard.writeText(shareUrl);
+                closeShareModal();
+                showToast('Share link copied. Your book and audio are saved.');
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || 'Could not create a share link');
+            } finally {
+                if (shareButton) {
+                    shareButton.disabled = false;
+                    shareButton.innerText = originalLabel;
+                }
+            }
         }
 
         function exportStandaloneHTML() {
@@ -854,6 +1038,9 @@
         }
         .menu-popover {
             transition: opacity 0.3s ease, transform 0.3s ease;
+            background: rgba(255, 250, 247, 0.97);
+            border-color: rgba(196, 181, 253, 0.65);
+            box-shadow: 0 18px 48px rgba(83, 61, 111, 0.16);
         }
         .menu-popover.hidden-menu {
             opacity: 0;
@@ -879,15 +1066,15 @@
     </div>
 
     <!-- Bottom Audio Control Info Banner -->
-    <div id="audio-info-banner" class="audio-banner fixed bottom-4 left-4 z-50 bg-neutral-900/90 text-white backdrop-blur-md px-4 py-3 rounded-2xl shadow-2xl border border-neutral-700/50 flex items-center space-x-3 text-xs max-w-sm">
-        <div class="p-1.5 bg-neutral-800 rounded-full text-neutral-200 shrink-0">
+    <div id="audio-info-banner" class="audio-banner hidden-banner fixed bottom-4 left-4 z-50 bg-gradient-to-r from-violet-50 to-orange-50 text-violet-950 backdrop-blur-md px-4 py-3 rounded-2xl shadow-lg border border-violet-100 flex items-center space-x-3 text-xs max-w-sm">
+        <div class="p-1.5 bg-white rounded-full text-violet-600 shrink-0">
             <i data-lucide="music" class="w-4 h-4"></i>
         </div>
         <div class="flex-1 pr-1">
-            <p class="font-medium text-neutral-100">Audio Playing</p>
-            <p class="text-[11px] text-neutral-400">Background music & page flip sounds can be controlled in the menu.</p>
+            <p class="font-medium text-violet-950">Audio controls</p>
+            <p class="text-[11px] text-violet-700">Adjust music and page-turn sounds from the reader menu.</p>
         </div>
-        <button onclick="dismissAudioBanner()" class="p-1 hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-white transition-colors">
+        <button onclick="dismissAudioBanner()" class="p-1 hover:bg-white rounded-full text-violet-500 hover:text-violet-800 transition-colors">
             <i data-lucide="x" class="w-4 h-4"></i>
         </button>
     </div>
@@ -896,7 +1083,7 @@
         <!-- Main Quick Toggle Action Button (3-Dot Menu) -->
         <div class="relative">
             <!-- 3-Dot Menu Popover Panel (Visible on load) -->
-            <div id="menu-popover" class="menu-popover absolute bottom-14 right-0 bg-white/95 backdrop-blur-md border border-neutral-200 shadow-2xl rounded-2xl p-3 w-64 text-xs space-y-3">
+            <div id="menu-popover" class="menu-popover hidden-menu absolute bottom-14 right-0 backdrop-blur-md border shadow-xl rounded-2xl p-3 w-64 text-xs space-y-3">
                 <div class="flex items-center justify-between pb-2 border-b border-neutral-100 font-semibold text-neutral-800">
                     <span id="page-counter">Page 1 of ${state.pages.length}</span>
                     <button onclick="toggleFullscreen()" class="p-1 hover:bg-neutral-100 rounded text-neutral-600" title="Toggle Fullscreen">
@@ -961,12 +1148,14 @@
         let pageFlipInstance = null;
         let zoomVal = 1;
         let soundEnabled = ${state.sound};
-        let bgmEnabled = true;
+        let bgmEnabled = ${state.bgm};
         let bgmTrack = ${JSON.stringify(state.bgmTrack)};
         let customAudioData = ${JSON.stringify(state.customAudioData)};
         let bgmVolume = ${state.bgmVolume};
         let flipVolume = ${state.flipVolume};
         let currentPage = 0;
+        const flipAudio = new Audio('flip.mp3');
+        flipAudio.preload = 'auto';
 
         let audioCtx = null;
         let bgmGainNode = null;
@@ -989,6 +1178,13 @@
         // Synthesized Page Flip Sound Effect Engine
         function playFlipAudio() {
             if (!soundEnabled) return;
+            if (flipAudio.readyState >= 2) {
+                flipAudio.pause();
+                flipAudio.currentTime = 0;
+                flipAudio.volume = flipVolume;
+                flipAudio.play().catch(() => {});
+                return;
+            }
             try {
                 const ctx = getAudioContext();
                 const bufferSize = ctx.sampleRate * 0.22; 
@@ -1114,7 +1310,12 @@
         function toggleMenuPopover() {
             const popover = document.getElementById('menu-popover');
             popover.classList.toggle('hidden-menu');
+            const audioBanner = document.getElementById('audio-info-banner');
+            if (audioBanner) audioBanner.classList.add('hidden-banner');
+            const popover = document.getElementById('menu-popover');
+            if (popover) popover.classList.add('hidden-menu');
             resetAutoHideTimer();
+            window.setTimeout(dismissAudioBanner, 4500);
         }
 
         function dismissAudioBanner() {
