@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Folio Studio - PDF to Flippable Book</title>
+    <title>FlipDF - PDF to Flippable Book</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
@@ -81,7 +81,7 @@
             <div class="w-7 h-7 rounded bg-neutral-900 text-white flex items-center justify-center font-bold text-xs tracking-wider">
                 F
             </div>
-            <span class="font-medium text-xs tracking-tight text-neutral-800">Folio Studio</span>
+            <span class="font-medium text-xs tracking-tight text-neutral-800">FlipDF</span>
         </div>
         
         <div id="nav-actions" class="flex items-center space-x-3 hidden">
@@ -829,7 +829,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${state.fileName.replace('.pdf', '')} - Flippable Book</title>
+    <title>${state.fileName.replace('.pdf', '')} - FlipDF Book</title>
     <script src="https://cdn.tailwindcss.com"><\/script>
     <script src="https://unpkg.com/lucide@latest"><\/script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
@@ -860,6 +860,14 @@
             pointer-events: none;
             transform: translateY(10px) scale(0.95);
         }
+        .audio-banner {
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+        }
+        .audio-banner.hidden-banner {
+            transform: translateY(100%) translateY(1rem);
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body class="bg-[#f5f5f7] text-neutral-900 h-full flex flex-col overflow-hidden relative font-sans">
@@ -870,11 +878,25 @@
         </div>
     </div>
 
+    <!-- Bottom Audio Control Info Banner -->
+    <div id="audio-info-banner" class="audio-banner fixed bottom-4 left-4 z-50 bg-neutral-900/90 text-white backdrop-blur-md px-4 py-3 rounded-2xl shadow-2xl border border-neutral-700/50 flex items-center space-x-3 text-xs max-w-sm">
+        <div class="p-1.5 bg-neutral-800 rounded-full text-neutral-200 shrink-0">
+            <i data-lucide="music" class="w-4 h-4"></i>
+        </div>
+        <div class="flex-1 pr-1">
+            <p class="font-medium text-neutral-100">Audio Playing</p>
+            <p class="text-[11px] text-neutral-400">Background music & page flip sounds can be controlled in the menu.</p>
+        </div>
+        <button onclick="dismissAudioBanner()" class="p-1 hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-white transition-colors">
+            <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+    </div>
+
     <div id="floating-bar" class="fixed bottom-5 right-5 z-50 flex items-center space-x-2 transition-opacity duration-500 opacity-100">
         <!-- Main Quick Toggle Action Button (3-Dot Menu) -->
         <div class="relative">
-            <!-- 3-Dot Menu Popover Panel -->
-            <div id="menu-popover" class="menu-popover hidden-menu absolute bottom-14 right-0 bg-white/95 backdrop-blur-md border border-neutral-200 shadow-2xl rounded-2xl p-3 w-64 text-xs space-y-3">
+            <!-- 3-Dot Menu Popover Panel (Visible on load) -->
+            <div id="menu-popover" class="menu-popover absolute bottom-14 right-0 bg-white/95 backdrop-blur-md border border-neutral-200 shadow-2xl rounded-2xl p-3 w-64 text-xs space-y-3">
                 <div class="flex items-center justify-between pb-2 border-b border-neutral-100 font-semibold text-neutral-800">
                     <span id="page-counter">Page 1 of ${state.pages.length}</span>
                     <button onclick="toggleFullscreen()" class="p-1 hover:bg-neutral-100 rounded text-neutral-600" title="Toggle Fullscreen">
@@ -898,14 +920,14 @@
                 <div class="pt-2 border-t border-neutral-100 space-y-2">
                     <div class="flex items-center justify-between">
                         <span class="text-neutral-600 font-medium">Page Flip Sound</span>
-                        <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800">
+                        <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 ${state.sound ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
                             <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
 
                     <div class="flex items-center justify-between">
                         <span class="text-neutral-600 font-medium">Background Music</span>
-                        <button onclick="toggleBgmSound()" id="bgm-btn" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-400">
+                        <button onclick="toggleBgmSound()" id="bgm-btn" class="p-1.5 ${state.bgm ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
                             <i data-lucide="music" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
@@ -939,7 +961,7 @@
         let pageFlipInstance = null;
         let zoomVal = 1;
         let soundEnabled = ${state.sound};
-        let bgmEnabled = ${state.bgm};
+        let bgmEnabled = true;
         let bgmTrack = ${JSON.stringify(state.bgmTrack)};
         let customAudioData = ${JSON.stringify(state.customAudioData)};
         let bgmVolume = ${state.bgmVolume};
@@ -1095,7 +1117,11 @@
             resetAutoHideTimer();
         }
 
-        // Auto-Hiding Controls Logic
+        function dismissAudioBanner() {
+            const banner = document.getElementById('audio-info-banner');
+            if (banner) banner.classList.add('hidden-banner');
+        }
+
         function resetAutoHideTimer() {
             const floatingBar = document.getElementById('floating-bar');
             floatingBar.classList.remove('opacity-0');
@@ -1104,12 +1130,11 @@
             clearTimeout(hideTimer);
             hideTimer = setTimeout(() => {
                 const popover = document.getElementById('menu-popover');
-                // Only hide floating bar if 3-dot menu isn't currently opened by user
                 if (popover.classList.contains('hidden-menu')) {
                     floatingBar.classList.remove('opacity-100');
                     floatingBar.classList.add('opacity-0');
                 }
-            }, 3500);
+            }, 6000);
         }
 
         document.addEventListener('mousemove', resetAutoHideTimer);
@@ -1164,13 +1189,21 @@
                 playFlipAudio();
             });
 
-            // Unlock audio context on initial page touch/click (Crucial for Google Sites & iFrame embed policies)
-            document.addEventListener('click', () => {
+            // Start background music automatically
+            try {
+                startBgm();
+            } catch(e) {}
+
+            // Fallback audio unlock handler for browsers with strict auto-play interaction requirements
+            const unlockAudio = () => {
                 getAudioContext();
                 if (bgmEnabled && !bgmOscillators.length && !customAudioEl) {
                     startBgm();
                 }
-            }, { once: true });
+            };
+
+            document.addEventListener('click', unlockAudio, { once: true });
+            document.addEventListener('touchstart', unlockAudio, { once: true });
 
             resetAutoHideTimer();
         };
@@ -1200,7 +1233,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${state.fileName.replace('.pdf', '')}_flippable_book.html`;
+            a.download = `${state.fileName.replace('.pdf', '')}_flipdf_book.html`;
             a.click();
             URL.revokeObjectURL(url);
             closeShareModal();
