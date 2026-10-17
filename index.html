@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FlipDF - PDF to Flippable Book</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Production Tailwind CSS (generate with `npm run build:css`). -->
+    <link rel="stylesheet" href="styles.css">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- PDF.js -->
@@ -23,9 +23,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
@@ -37,6 +34,7 @@
             align-items: center;
             margin: auto;
             position: relative;
+            touch-action: none;
         }
 
         /* Enforce absolute opacity and solid white background on container, canvas, and pages */
@@ -52,9 +50,10 @@
         }
 
         .stpageflip-page {
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+            box-shadow: 0 8px 28px rgba(47, 36, 29, 0.18);
             transform-style: preserve-3d;
             isolation: isolate;
+            background-image: linear-gradient(90deg, rgba(112, 83, 56, 0.08), transparent 8%, transparent 92%, rgba(112, 83, 56, 0.07)) !important;
         }
 
         /* Spine gradient & soft lighting shadows on individual pages */
@@ -62,7 +61,7 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(to right, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.01) 4%, transparent 12%, transparent 88%, rgba(0,0,0,0.01) 96%, rgba(0,0,0,0.05) 100%);
+            background: linear-gradient(to right, rgba(63,45,31,0.18) 0%, rgba(63,45,31,0.04) 3%, transparent 13%, transparent 86%, rgba(63,45,31,0.04) 97%, rgba(63,45,31,0.14) 100%);
             pointer-events: none;
             z-index: 10;
         }
@@ -789,10 +788,11 @@
                 minHeight: 350,
                 maxHeight: 1200,
                 drawShadow: true,
-                maxShadowOpacity: 0.2, // Clean, realistic dynamic shadow
-                flippingTime: 450, // Faster, snappier page release animation
-                swipeDistance: 30, // Auto-release threshold: page flips automatically after 30px drag
+                maxShadowOpacity: 0.38,
+                flippingTime: 750,
+                swipeDistance: 18,
                 usePortrait: isMobile,
+                startZIndex: 0,
                 startPage: 0,
                 autoSize: true,
                 clickEventForward: true,
@@ -826,6 +826,29 @@
                 updateNavigationUI();
                 playFlipAudio();
             });
+
+            if (isMobile) {
+                const stage = document.getElementById('stage-viewport');
+                let tapStart = null;
+                stage.addEventListener('pointerdown', (event) => {
+                    if (!event.target.closest('#flipbook-root')) return;
+                    tapStart = { x: event.clientX, y: event.clientY, time: Date.now() };
+                }, { passive: true });
+                stage.addEventListener('pointerup', (event) => {
+                    if (!tapStart || Date.now() - tapStart.time > 350) {
+                        tapStart = null;
+                        return;
+                    }
+                    const dx = event.clientX - tapStart.x;
+                    const dy = event.clientY - tapStart.y;
+                    tapStart = null;
+                    if (Math.hypot(dx, dy) > 12 || !event.target.closest('#flipbook-root')) return;
+                    const midpoint = stage.getBoundingClientRect().left + stage.clientWidth / 2;
+                    if (event.clientX >= midpoint) turnNext();
+                    else turnPrev();
+                }, { passive: true });
+                stage.addEventListener('pointercancel', () => { tapStart = null; }, { passive: true });
+            }
 
             updateNavigationUI();
         }
@@ -1007,16 +1030,30 @@
             }
         }
 
-        function exportStandaloneHTML() {
+        async function exportStandaloneHTML() {
             showToast('Preparing standalone book HTML...');
             const pagesJSON = JSON.stringify(state.pages);
+            let tailwindCss;
+            try {
+                const stylesheet = Array.from(document.styleSheets).find(sheet =>
+                    sheet.href && new URL(sheet.href).pathname.endsWith('/styles.css')
+                );
+                const response = await fetch(stylesheet ? stylesheet.href : 'styles.css');
+                if (!response.ok) throw new Error('Could not load the production stylesheet.');
+                tailwindCss = await response.text();
+                if (!tailwindCss.trim()) throw new Error('The production stylesheet is empty.');
+            } catch (error) {
+                console.error(error);
+                showToast('Build styles.css before exporting the standalone book');
+                return;
+            }
             const standaloneContent = `<!DOCTYPE html>
 <html lang="en" class="h-full select-none">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${state.fileName.replace('.pdf', '')} - FlipDF Book</title>
-    <script src="https://cdn.tailwindcss.com"><\/script>
+    <style>${tailwindCss}</style>
     <script src="https://unpkg.com/lucide@latest"><\/script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
     <style>
@@ -1025,16 +1062,18 @@
             opacity: 1 !important;
             backface-visibility: hidden !important;
         }
+        .page-flip-container { display: flex; justify-content: center; align-items: center; margin: auto; position: relative; touch-action: none; }
         .stpageflip-page { 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.12); 
+            box-shadow: 0 8px 28px rgba(47,36,29,0.18); 
             transform-style: preserve-3d;
             isolation: isolate;
+            background-image: linear-gradient(90deg, rgba(112,83,56,0.08), transparent 8%, transparent 92%, rgba(112,83,56,0.07)) !important;
         }
         .stpageflip-page::after {
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(to right, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.01) 4%, transparent 12%, transparent 88%, rgba(0,0,0,0.01) 96%, rgba(0,0,0,0.05) 100%);
+            background: linear-gradient(to right, rgba(63,45,31,0.18) 0%, rgba(63,45,31,0.04) 3%, transparent 13%, transparent 86%, rgba(63,45,31,0.04) 97%, rgba(63,45,31,0.14) 100%);
             pointer-events: none;
             z-index: 10;
         }
@@ -1048,6 +1087,36 @@
             opacity: 0;
             pointer-events: none;
             transform: translateY(10px) scale(0.95);
+        }
+        @media (max-width: 767px) {
+            .menu-popover {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                top: auto;
+                width: 100%;
+                max-height: 58vh;
+                overflow-y: auto;
+                padding: 1.15rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+                border-radius: 1.5rem 1.5rem 0 0;
+                overscroll-behavior: contain;
+                transform: translateY(0);
+                transform-origin: bottom center;
+            }
+            .menu-popover::before {
+                content: '';
+                display: block;
+                width: 2.5rem;
+                height: 0.25rem;
+                border-radius: 9999px;
+                background: #d8cdea;
+                margin: 0 auto 0.8rem;
+            }
+            .menu-popover.hidden-menu {
+                transform: translateY(100%);
+                opacity: 0;
+            }
         }
         .audio-banner {
             transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
@@ -1310,14 +1379,10 @@
         }
 
         function toggleMenuPopover() {
-            const popover = document.getElementById('menu-popover');
-            popover.classList.toggle('hidden-menu');
-            const audioBanner = document.getElementById('audio-info-banner');
-            if (audioBanner) audioBanner.classList.add('hidden-banner');
-            const popover = document.getElementById('menu-popover');
-            if (popover) popover.classList.add('hidden-menu');
+            const menuPopover = document.getElementById('menu-popover');
+            if (!menuPopover) return;
+            menuPopover.classList.toggle('hidden-menu');
             resetAutoHideTimer();
-            window.setTimeout(dismissAudioBanner, 4500);
         }
 
         function dismissAudioBanner() {
@@ -1329,19 +1394,28 @@
             const floatingBar = document.getElementById('floating-bar');
             floatingBar.classList.remove('opacity-0');
             floatingBar.classList.add('opacity-100');
-
             clearTimeout(hideTimer);
-            hideTimer = setTimeout(() => {
-                const popover = document.getElementById('menu-popover');
-                if (popover.classList.contains('hidden-menu')) {
-                    floatingBar.classList.remove('opacity-100');
-                    floatingBar.classList.add('opacity-0');
-                }
-            }, 6000);
         }
 
-        document.addEventListener('mousemove', resetAutoHideTimer);
-        document.addEventListener('touchstart', resetAutoHideTimer);
+        document.addEventListener('pointerdown', (event) => {
+            const popoverElement = document.getElementById('menu-popover');
+            const target = event.target instanceof Element ? event.target : null;
+            const toggle = target && target.closest('#floating-bar > div > button');
+            if (popoverElement && target && !popoverElement.classList.contains('hidden-menu') && !popoverElement.contains(target) && !toggle) {
+                popoverElement.classList.add('hidden-menu');
+            }
+        });
+
+        const menuPanel = document.getElementById('menu-popover');
+        let menuTouchStartY = 0;
+        menuPanel.addEventListener('touchstart', (event) => {
+            menuTouchStartY = event.changedTouches[0].clientY;
+        }, { passive: true });
+        menuPanel.addEventListener('touchend', (event) => {
+            if (event.changedTouches[0].clientY - menuTouchStartY > 55) {
+                menuPanel.classList.add('hidden-menu');
+            }
+        }, { passive: true });
 
         window.onload = function() {
             if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -1350,21 +1424,44 @@
             if(!PageFlipClass) return;
 
             const isMobile = window.innerWidth < 768;
-            const stageWidth = Math.min(window.innerWidth - (isMobile ? 12 : 32), 1000);
-            const stageHeight = Math.min(window.innerHeight - 30, 800);
-
+            const stage = document.getElementById('stage-area');
+            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 48), 1100);
+            const stageHeight = Math.min(stage.clientHeight - (isMobile ? 110 : 48), 820);
             let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
             let pageH = Math.floor(stageHeight);
+            if (pages.length) {
+                const firstPage = new Image();
+                firstPage.onload = () => {
+                    const aspect = firstPage.width / firstPage.height;
+                    pageH = Math.min(stageHeight, 760);
+                    pageW = Math.floor(pageH * aspect);
+                    if (!isMobile && pageW * 2 > stageWidth) {
+                        pageW = Math.floor(stageWidth / 2);
+                        pageH = Math.floor(pageW / aspect);
+                    } else if (isMobile && pageW > stageWidth) {
+                        pageW = stageWidth;
+                        pageH = Math.floor(pageW / aspect);
+                    }
+                    initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
+                };
+                firstPage.src = pages[0];
+            } else {
+                initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
+            }
+        };
+
+        function initializeExportFlip(PageFlipClass, pageW, pageH, isMobile) {
 
             pageFlipInstance = new PageFlipClass(document.getElementById('flipbook-root'), {
                 width: pageW,
                 height: pageH,
                 size: "fixed",
                 drawShadow: true,
-                maxShadowOpacity: 0.2,
-                flippingTime: 450,
-                swipeDistance: 30,
+                maxShadowOpacity: 0.38,
+                flippingTime: 750,
+                swipeDistance: 18,
                 usePortrait: isMobile,
+                startZIndex: 0,
                 showCover: true,
                 useMouseEvents: true,
                 clickEventForward: true
@@ -1391,6 +1488,31 @@
                 document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
                 playFlipAudio();
             });
+
+            if (isMobile) {
+                const stage = document.getElementById('stage-area');
+                let touchStart = null;
+                stage.addEventListener('pointerdown', (event) => {
+                    if (!event.target.closest('#flipbook-root')) return;
+                    touchStart = { x: event.clientX, y: event.clientY, time: Date.now() };
+                }, { passive: true });
+                stage.addEventListener('pointerup', (event) => {
+                    if (!touchStart || Date.now() - touchStart.time > 350) {
+                        touchStart = null;
+                        return;
+                    }
+                    const dx = event.clientX - touchStart.x;
+                    const dy = event.clientY - touchStart.y;
+                    const start = touchStart;
+                    touchStart = null;
+                    if (Math.hypot(dx, dy) > 12 || !event.target.closest('#flipbook-root')) return;
+                    const rect = stage.getBoundingClientRect();
+                    const center = rect.left + rect.width / 2;
+                    if (event.clientX >= center) turnNext();
+                    else turnPrev();
+                }, { passive: true });
+                stage.addEventListener('pointercancel', () => { touchStart = null; }, { passive: true });
+            }
 
             // Start background music automatically
             try {

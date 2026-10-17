@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
+
+.page-flip-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: auto;
+  position: relative;
+  touch-action: none;
+}
+
+.stpageflip-page,
+.stpageflip-page *,
+.stpageflip-container,
+.stpageflip-wrapper,
+.page-flip-container canvas {
+  background-color: #ffffff !important;
+  opacity: 1 !important;
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+}
+
+.stpageflip-page {
+  box-shadow: 0 8px 28px rgba(47, 36, 29, 0.18);
+  transform-style: preserve-3d;
+  isolation: isolate;
+  background-image: linear-gradient(90deg, rgba(112, 83, 56, 0.08), transparent 8%, transparent 92%, rgba(112, 83, 56, 0.07)) !important;
+}
+
+.stpageflip-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(63, 45, 31, 0.18) 0%, rgba(63, 45, 31, 0.04) 3%, transparent 13%, transparent 86%, rgba(63, 45, 31, 0.04) 97%, rgba(63, 45, 31, 0.14) 100%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+@keyframes cornerPeelHint {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-8px, -8px); }
+}
+
+.peel-hint {
+  animation: cornerPeelHint 2.5s ease-in-out infinite;
+}

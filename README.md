@@ -1,5 +1,9 @@
 # FlipDF setup
 
+## Build production styles
+
+Install the project dependencies with `npm install`, then run `npm run build:css` before deploying. This generates `styles.css` from `src/tailwind.css` and removes the development-only Tailwind CDN dependency. Run the build again whenever Tailwind classes or custom styles change.
+
 ## Firebase share links
 
 1. Create a Firebase project and register a Web app. Copy its web configuration into the `firebaseConfig` object near the top of the application script in [index.html](index.html).
