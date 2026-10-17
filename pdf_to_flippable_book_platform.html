@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Folio Studio - PDF to Flippable Book</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
+    <!-- PageFlip JS for true 3D page bending & physical peel mechanics -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+
+        .page-flip-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: auto;
+            position: relative;
+        }
+
+        /* Enforce absolute opacity and solid white background on container, canvas, and pages */
+        .stpageflip-page, 
+        .stpageflip-page *, 
+        .stpageflip-container,
+        .stpageflip-wrapper,
+        .page-flip-container canvas {
+            background-color: #ffffff !important;
+            opacity: 1 !important;
+            backface-visibility: hidden !important;
+            -webkit-backface-visibility: hidden !important;
+        }
+
+        .stpageflip-page {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+            transform-style: preserve-3d;
+            isolation: isolate;
+        }
+
+        /* Spine gradient & soft lighting shadows on individual pages */
+        .stpageflip-page::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to right, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.01) 4%, transparent 12%, transparent 88%, rgba(0,0,0,0.01) 96%, rgba(0,0,0,0.05) 100%);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Subtle page peeling corner hint animation */
+        @keyframes cornerPeelHint {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(-8px, -8px); }
+        }
+        
+        .peel-hint {
+            animation: cornerPeelHint 2.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-[#fcfcfc] text-[#111827] h-full flex flex-col antialiased selection:bg-neutral-900 selection:text-white overflow-hidden">
+
+    <!-- Top Navigation Header -->
+    <header class="h-14 border-b border-neutral-200/80 bg-white/80 backdrop-blur px-6 flex items-center justify-between shrink-0 z-30">
+        <div class="flex items-center space-x-3">
+            <div class="w-7 h-7 rounded bg-neutral-900 text-white flex items-center justify-center font-bold text-xs tracking-wider">
+                F
+            </div>
+            <span class="font-medium text-xs tracking-tight text-neutral-800">Folio Studio</span>
+        </div>
+        
+        <div id="nav-actions" class="flex items-center space-x-3 hidden">
+            <button onclick="toggleThumbnails()" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors flex items-center space-x-1.5">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                <span>Pages</span>
+            </button>
+            <button onclick="switchView('workspace')" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors">
+                Workspace
+            </button>
+            <button onclick="toggleFullscreen()" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors">
+                <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+            </button>
+            <div class="h-3.5 w-px bg-neutral-200"></div>
+            <button onclick="openShareModal()" class="inline-flex items-center space-x-1.5 text-xs font-medium border border-neutral-300 hover:border-neutral-400 text-neutral-800 px-3 py-1.5 rounded transition-colors">
+                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+                <span>Share Book</span>
+            </button>
+            <button onclick="exportStandaloneHTML()" class="inline-flex items-center space-x-1.5 text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded transition-colors">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Export Standalone Book</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-hidden relative flex flex-col">
+
+        <!-- VIEW 1: WORKSPACE / UPLOAD -->
+        <section id="view-workspace" class="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full flex flex-col justify-center">
+            <div class="text-center max-w-lg mx-auto mb-10">
+                <h1 class="text-xl font-semibold text-neutral-900 mb-2">Convert PDF to 3D Flippable Book</h1>
+                <p class="text-xs text-neutral-500">Upload a PDF to build an interactive digital publication with realistic page bending, soft dynamic shadows, corner dragging, and paper turn audio.</p>
+            </div>
+
+            <!-- Drag & Drop Zone -->
+            <div id="dropzone" class="border border-dashed border-neutral-300 rounded-2xl p-12 text-center hover:border-neutral-500 transition-all bg-white cursor-pointer group max-w-lg mx-auto w-full mb-8">
+                <input type="file" id="pdf-file-input" accept="application/pdf" class="hidden">
+                <div class="w-10 h-10 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform">
+                    <i data-lucide="file-up" class="w-4 h-4"></i>
+                </div>
+                <p class="text-xs font-medium text-neutral-800 mb-1">Click to upload or drag & drop PDF</p>
+                <p class="text-[11px] text-neutral-400">Up to 100MB</p>
+            </div>
+
+            <!-- Samples -->
+            <div class="max-w-lg mx-auto w-full">
+                <div class="text-[11px] font-medium text-neutral-400 uppercase tracking-wider mb-3">Or try a sample book</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="loadSampleBook('editorial')" class="p-3.5 rounded-xl border border-neutral-200 bg-white hover:border-neutral-400 text-left transition-all flex items-center space-x-3">
+                        <div class="w-8 h-10 rounded bg-neutral-900 text-white flex items-center justify-center font-bold text-[10px]">ED</div>
+                        <div>
+                            <div class="text-xs font-medium text-neutral-900">Editorial Journal</div>
+                            <div class="text-[10px] text-neutral-400">8 Pages • Curved Bending</div>
+                        </div>
+                    </button>
+                    <button onclick="loadSampleBook('catalog')" class="p-3.5 rounded-xl border border-neutral-200 bg-white hover:border-neutral-400 text-left transition-all flex items-center space-x-3">
+                        <div class="w-8 h-10 rounded bg-neutral-700 text-white flex items-center justify-center font-bold text-[10px]">CAT</div>
+                        <div>
+                            <div class="text-xs font-medium text-neutral-900">Minimal Catalog</div>
+                            <div class="text-[10px] text-neutral-400">8 Pages • Soft Shadows</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 2: READER & INTERACTIVE STUDIO -->
+        <section id="view-reader" class="flex-1 flex overflow-hidden hidden relative">
+            
+            <!-- Side Thumbnails Drawer -->
+            <aside id="thumb-drawer" class="w-56 border-r border-neutral-200 bg-white flex flex-col shrink-0 transition-all duration-300 -ml-56 z-20">
+                <div class="p-3 border-b border-neutral-100 flex items-center justify-between">
+                    <span class="text-[11px] font-medium uppercase tracking-wider text-neutral-400">Table of Contents</span>
+                    <button onclick="toggleThumbnails()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                </div>
+                <div id="thumb-container" class="flex-1 overflow-y-auto p-3 space-y-3">
+                    <!-- Dynamic Thumbnails Rendered Here -->
+                </div>
+            </aside>
+
+            <!-- Book Stage & Viewport -->
+            <div class="flex-1 bg-[#f5f5f7] flex flex-col relative overflow-hidden">
+                <!-- Top Toolbar -->
+                <div class="h-10 border-b border-neutral-200/60 bg-white/60 backdrop-blur px-6 flex items-center justify-between shrink-0 z-10">
+                    <div class="text-xs text-neutral-500 font-medium" id="page-counter">Page 1 of 1</div>
+                    
+                    <div class="flex items-center space-x-1">
+                        <!-- Sound & Music Controls -->
+                        <button onclick="toggleSound()" id="sound-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Toggle Page Flip Sound">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="toggleBgm()" id="bgm-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-400 transition-colors" title="Toggle Background Music">
+                            <i data-lucide="music" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="openAudioSettings()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Audio Settings">
+                            <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <div class="h-3 w-px bg-neutral-200 mx-1"></div>
+                        <button onclick="adjustZoom(0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+                        <button onclick="adjustZoom(-0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+                        <button onclick="resetZoom()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Reset Zoom"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i></button>
+                    </div>
+                </div>
+
+                <!-- Canvas Stage Area -->
+                <div id="stage-viewport" class="flex-1 flex items-center justify-center p-3 sm:p-6 overflow-hidden relative select-none">
+                    <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
+                        <div id="flipbook-root" class="page-flip-container"></div>
+                    </div>
+                    
+                    <div id="peel-corner-hint" class="absolute bottom-6 right-6 pointer-events-none opacity-60 flex items-center space-x-1 text-[11px] font-medium text-neutral-500 bg-white/80 backdrop-blur px-2.5 py-1 rounded-full shadow-sm border border-neutral-200/80">
+                        <span>Drag corner or swipe to flip</span>
+                        <i data-lucide="corner-down-left" class="w-3.5 h-3.5 peel-hint"></i>
+                    </div>
+                </div>
+
+                <!-- Bottom Bar Navigation Controls -->
+                <div class="h-12 border-t border-neutral-200 bg-white px-6 flex items-center justify-between shrink-0 z-10">
+                    <button onclick="turnPrev()" id="btn-prev" class="inline-flex items-center space-x-1.5 text-xs font-medium text-neutral-700 hover:text-neutral-900 px-3 py-1.5 rounded border border-neutral-200 hover:border-neutral-300 transition-all disabled:opacity-30">
+                        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        <span>Previous</span>
+                    </button>
+
+                    <div class="flex items-center space-x-3">
+                        <input type="range" id="page-slider" min="0" max="0" value="0" oninput="jumpToPage(parseInt(this.value))" class="w-40 accent-neutral-900 cursor-pointer">
+                    </div>
+
+                    <button onclick="turnNext()" id="btn-next" class="inline-flex items-center space-x-1.5 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded transition-all disabled:opacity-30">
+                        <span>Next</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-neutral-900 text-white text-xs px-3.5 py-2 rounded-lg shadow-xl transform translate-y-10 opacity-0 transition-all duration-200 z-50 flex items-center space-x-2">
+        <i data-lucide="info" class="w-3.5 h-3.5 text-neutral-300"></i>
+        <span id="toast-text">Notification</span>
+    </div>
+
+    <!-- Audio Settings Modal -->
+    <div id="audio-modal" class="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-xl border border-neutral-200 w-full max-w-sm p-6 relative">
+            <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
+                <span class="text-xs font-semibold text-neutral-900">Audio & Background Music</span>
+                <button onclick="closeAudioSettings()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-neutral-600 font-medium mb-1.5">Background Ambient Track</label>
+                    <select id="bgm-select" onchange="changeBgmTrack(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
+                        <option value="piano">Ambient Piano Stream</option>
+                        <option value="lofi">Lofi Focus Chords</option>
+                        <option value="zen">Zen Meditation Pads</option>
+                        <option value="custom">Upload Custom MP3 File...</option>
+                    </select>
+                    <input type="file" id="custom-bgm-input" accept="audio/*" class="hidden mt-2" onchange="handleCustomAudioUpload(event)">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-neutral-600 mb-1">
+                        <span>Background Music Volume</span>
+                        <span id="bgm-vol-val">30%</span>
+                    </div>
+                    <input type="range" id="bgm-volume" min="0" max="1" step="0.05" value="0.3" oninput="setBgmVolume(this.value)" class="w-full accent-neutral-900">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-neutral-600 mb-1">
+                        <span>Page Flip Sound Effect Volume</span>
+                        <span id="flip-vol-val">60%</span>
+                    </div>
+                    <input type="range" id="flip-volume" min="0" max="1" step="0.05" value="0.6" oninput="setFlipVolume(this.value)" class="w-full accent-neutral-900">
+                </div>
+            </div>
+
+            <button onclick="closeAudioSettings()" class="mt-6 w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg font-medium text-xs transition-colors">
+                Done
+            </button>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="share-modal" class="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-xl shadow-xl border border-neutral-200 w-full max-w-md p-6 relative">
+            <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
+                <span class="text-xs font-semibold text-neutral-900">Share Flippable Book</span>
+                <button onclick="closeShareModal()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <p class="text-xs text-neutral-500 mb-4">Share this interactive publication with all page designs, 3D flip physics, sound effects, and background music included.</p>
+
+            <div class="space-y-3">
+                <button onclick="copyShareLink()" class="w-full py-2.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg font-medium text-xs transition-colors flex items-center justify-center space-x-2">
+                    <i data-lucide="link" class="w-3.5 h-3.5"></i>
+                    <span>Copy Full Interactive Share Link</span>
+                </button>
+                <button onclick="exportStandaloneHTML()" class="w-full py-2.5 px-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg font-medium text-xs transition-colors flex items-center justify-center space-x-2 border border-neutral-200">
+                    <i data-lucide="file-code" class="w-3.5 h-3.5"></i>
+                    <span>Download Self-Contained Web App (.html)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+
+        // Platform Application State
+        let state = {
+            pages: [],
+            currentPage: 0,
+            zoom: 1,
+            sound: true,
+            bgm: false,
+            bgmTrack: 'piano',
+            customAudioData: null,
+            bgmVolume: 0.3,
+            flipVolume: 0.6,
+            fileName: 'publication.pdf'
+        };
+
+        let pageFlipInstance = null;
+        let bgmAudioCtx = null;
+        let bgmOscillators = [];
+        let bgmGainNode = null;
+        let customAudioEl = null;
+
+        function getAudioContext() {
+            if (!window.audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                window.audioCtx = new AudioCtx();
+            }
+            if (window.audioCtx.state === 'suspended') {
+                window.audioCtx.resume();
+            }
+            return window.audioCtx;
+        }
+
+        // Realistic Synthesized Paper Rustle Audio Engine
+        function playFlipAudio() {
+            if (!state.sound) return;
+            try {
+                const ctx = getAudioContext();
+                const bufferSize = ctx.sampleRate * 0.22; 
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(850, ctx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(280, ctx.currentTime + 0.18);
+                filter.Q.value = 2.0;
+
+                const gain = ctx.createGain();
+                const peakGain = 0.18 * state.flipVolume;
+                gain.gain.setValueAtTime(0.001, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(peakGain, ctx.currentTime + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(ctx.destination);
+
+                noise.start();
+            } catch (e) {}
+        }
+
+        // Ambient Background Music Generator (Synthesizer & Audio Player)
+        function toggleBgm() {
+            state.bgm = !state.bgm;
+            const btn = document.getElementById('bgm-btn');
+            if (state.bgm) {
+                btn.className = 'p-1.5 hover:bg-neutral-100 rounded text-neutral-900 transition-colors bg-neutral-200/60';
+                startBgm();
+                showToast('Background music enabled');
+            } else {
+                btn.className = 'p-1.5 hover:bg-neutral-100 rounded text-neutral-400 transition-colors';
+                stopBgm();
+                showToast('Background music stopped');
+            }
+        }
+
+        function startBgm() {
+            stopBgm();
+            if (!state.bgm) return;
+
+            if (state.bgmTrack === 'custom' && state.customAudioData) {
+                if (!customAudioEl) {
+                    customAudioEl = new Audio(state.customAudioData);
+                    customAudioEl.loop = true;
+                }
+                customAudioEl.volume = state.bgmVolume;
+                customAudioEl.play().catch(() => {});
+                return;
+            }
+
+            try {
+                const ctx = getAudioContext();
+                bgmGainNode = ctx.createGain();
+                bgmGainNode.gain.setValueAtTime(state.bgmVolume * 0.15, ctx.currentTime);
+                bgmGainNode.connect(ctx.destination);
+
+                let freqs = [220, 277.18, 329.63, 440]; // A Major 7
+                if (state.bgmTrack === 'lofi') freqs = [174.61, 220, 261.63, 329.63]; // Fmaj7
+                if (state.bgmTrack === 'zen') freqs = [130.81, 196.00, 261.63, 392.00]; // C sub-harmonics
+
+                bgmOscillators = freqs.map((freq) => {
+                    const osc = ctx.createOscillator();
+                    const lfo = ctx.createOscillator();
+                    const lfoGain = ctx.createGain();
+
+                    osc.type = state.bgmTrack === 'zen' ? 'sine' : 'triangle';
+                    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+                    // Gentle pitch shimmer (vibrato)
+                    lfo.frequency.setValueAtTime(0.2 + Math.random() * 0.1, ctx.currentTime);
+                    lfoGain.gain.setValueAtTime(1.5, ctx.currentTime);
+                    lfo.connect(osc.frequency);
+                    lfo.start();
+
+                    osc.connect(bgmGainNode);
+                    osc.start();
+                    return { osc, lfo };
+                });
+            } catch(e) {}
+        }
+
+        function stopBgm() {
+            if (customAudioEl) {
+                customAudioEl.pause();
+                customAudioEl = null;
+            }
+            if (bgmOscillators.length) {
+                bgmOscillators.forEach(o => {
+                    try { o.osc.stop(); o.lfo.stop(); } catch(e){}
+                });
+                bgmOscillators = [];
+            }
+        }
+
+        function setBgmVolume(val) {
+            state.bgmVolume = parseFloat(val);
+            document.getElementById('bgm-vol-val').innerText = Math.round(state.bgmVolume * 100) + '%';
+            if (bgmGainNode) {
+                bgmGainNode.gain.setValueAtTime(state.bgmVolume * 0.15, getAudioContext().currentTime);
+            }
+            if (customAudioEl) {
+                customAudioEl.volume = state.bgmVolume;
+            }
+        }
+
+        function setFlipVolume(val) {
+            state.flipVolume = parseFloat(val);
+            document.getElementById('flip-vol-val').innerText = Math.round(state.flipVolume * 100) + '%';
+        }
+
+        function changeBgmTrack(val) {
+            if (val === 'custom') {
+                document.getElementById('custom-bgm-input').click();
+                return;
+            }
+            state.bgmTrack = val;
+            state.customAudioData = null;
+            if (state.bgm) startBgm();
+        }
+
+        function handleCustomAudioUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                state.customAudioData = evt.target.result;
+                state.bgmTrack = 'custom';
+                showToast('Custom audio track loaded');
+                if (state.bgm) startBgm();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function openAudioSettings() {
+            document.getElementById('audio-modal').classList.remove('hidden');
+        }
+
+        function closeAudioSettings() {
+            document.getElementById('audio-modal').classList.add('hidden');
+        }
+
+        function getPageFlipConstructor() {
+            if (window.St && window.St.PageFlip) return window.St.PageFlip;
+            if (window.PageFlip && window.PageFlip.PageFlip) return window.PageFlip.PageFlip;
+            if (typeof window.PageFlip === 'function') return window.PageFlip;
+            return null;
+        }
+
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('pdf-file-input');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-neutral-500'); });
+        dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-neutral-500'); });
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('border-neutral-500');
+            if (e.dataTransfer.files.length > 0) processPDF(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) processPDF(e.target.files[0]);
+        });
+
+        async function processPDF(file) {
+            state.fileName = file.name;
+            showToast('Parsing and rendering PDF...');
+            try {
+                const buffer = await file.arrayBuffer();
+                const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+                let extracted = [];
+
+                for (let i = 1; i <= doc.numPages; i++) {
+                    const page = await doc.getPage(i);
+                    const viewport = page.getViewport({ scale: 2.0 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    const ctx = canvas.getContext('2d', { alpha: false }); // Disable alpha channel to force solid output
+                    
+                    // Pre-fill solid white background before rendering PDF contents
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                    extracted.push(canvas.toDataURL('image/jpeg', 0.95)); // JPEG for 100% opaque pages
+                }
+
+                state.pages = extracted;
+                launchReader();
+            } catch (e) {
+                console.error(e);
+                showToast('Unable to parse PDF file');
+            }
+        }
+
+        function loadSampleBook(type) {
+            showToast('Building sample book...');
+            let pages = [];
+            for (let i = 1; i <= 8; i++) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 800;
+                canvas.height = 1100;
+                const ctx = canvas.getContext('2d', { alpha: false }); // Force non-transparent canvas
+
+                ctx.fillStyle = i === 1 ? (type === 'editorial' ? '#111827' : '#27272a') : '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                if (i === 1) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 52px Inter, sans-serif';
+                    ctx.fillText(type === 'editorial' ? 'Editorial Journal' : 'Minimal Catalog', 70, 200);
+                    ctx.font = '20px Inter, sans-serif';
+                    ctx.fillStyle = '#9ca3af';
+                    ctx.fillText('Volume 01 • Dynamic Bending Physics & Audio', 70, 260);
+                } else {
+                    ctx.fillStyle = '#111827';
+                    ctx.font = 'bold 32px Inter, sans-serif';
+                    ctx.fillText(`Chapter 0${i - 1}`, 70, 110);
+
+                    ctx.fillStyle = '#6b7280';
+                    ctx.font = '18px Inter, sans-serif';
+                    ctx.fillText("Interactive page flip engine with dynamic corner peeling, audio synthesis & ambient sound.", 70, 150);
+
+                    ctx.fillStyle = '#f4f4f5';
+                    ctx.fillRect(70, 210, 660, 750);
+                    ctx.fillStyle = '#a1a1aa';
+                    ctx.font = '16px Inter, sans-serif';
+                    ctx.fillText(`Illustration Plate 0${i}`, 320, 600);
+                }
+
+                ctx.fillStyle = i === 1 ? '#9ca3af' : '#111827';
+                ctx.font = '16px Inter, sans-serif';
+                ctx.fillText(`Page ${i}`, canvas.width - 100, canvas.height - 70);
+
+                pages.push(canvas.toDataURL('image/jpeg', 0.95));
+            }
+
+            state.pages = pages;
+            state.fileName = type === 'editorial' ? 'Editorial_Journal.pdf' : 'Minimal_Catalog.pdf';
+            launchReader();
+        }
+
+        function launchReader() {
+            state.currentPage = 0;
+            switchView('reader');
+            buildThumbnails();
+            initStPageFlip();
+        }
+
+        function switchView(view) {
+            if (view === 'workspace') {
+                document.getElementById('view-reader').classList.add('hidden');
+                document.getElementById('view-workspace').classList.remove('hidden');
+                document.getElementById('nav-actions').classList.add('hidden');
+                stopBgm();
+            } else {
+                document.getElementById('view-workspace').classList.add('hidden');
+                document.getElementById('view-reader').classList.remove('hidden');
+                document.getElementById('nav-actions').classList.remove('hidden');
+            }
+        }
+
+        function initStPageFlip() {
+            const container = document.getElementById('flipbook-root');
+            container.innerHTML = '';
+
+            if (pageFlipInstance) {
+                try { pageFlipInstance.destroy(); } catch (e) {}
+            }
+
+            const PageFlipClass = getPageFlipConstructor();
+            if (!PageFlipClass) {
+                showToast('Flipbook engine loading, please try again in a moment');
+                return;
+            }
+
+            const isMobile = window.innerWidth < 768;
+            const stageWidth = Math.min(window.innerWidth - (isMobile ? 16 : 64), 1000);
+            const stageHeight = Math.min(window.innerHeight - 130, 800);
+
+            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
+            let pageH = Math.floor(stageHeight);
+
+            if (state.pages.length > 0) {
+                const img = new Image();
+                img.onload = () => {
+                    const aspect = img.width / img.height;
+                    pageH = Math.min(stageHeight, 750);
+                    pageW = Math.floor(pageH * aspect);
+                    
+                    if (!isMobile && pageW * 2 > stageWidth) {
+                        pageW = Math.floor(stageWidth / 2);
+                        pageH = Math.floor(pageW / aspect);
+                    } else if (isMobile && pageW > stageWidth) {
+                        pageW = stageWidth;
+                        pageH = Math.floor(pageW / aspect);
+                    }
+
+                    setupPageFlipInstance(PageFlipClass, pageW, pageH, isMobile);
+                };
+                img.src = state.pages[0];
+            } else {
+                setupPageFlipInstance(PageFlipClass, 400, 560, isMobile);
+            }
+        }
+
+        function setupPageFlipInstance(PageFlipClass, width, height, isMobile) {
+            const container = document.getElementById('flipbook-root');
+            
+            pageFlipInstance = new PageFlipClass(container, {
+                width: width,
+                height: height,
+                size: "fixed",
+                minWidth: 260,
+                maxWidth: 1000,
+                minHeight: 350,
+                maxHeight: 1200,
+                drawShadow: true,
+                maxShadowOpacity: 0.2, // Clean, realistic dynamic shadow
+                flippingTime: 450, // Faster, snappier page release animation
+                swipeDistance: 30, // Auto-release threshold: page flips automatically after 30px drag
+                usePortrait: isMobile,
+                startPage: 0,
+                autoSize: true,
+                clickEventForward: true,
+                useMouseEvents: true,
+                showCover: true,
+                mobileScrollSupport: false
+            });
+
+            // Create solid image element nodes with opaque styling
+            const pageElements = state.pages.map((dataUrl, idx) => {
+                const pageWrapper = document.createElement('div');
+                pageWrapper.className = 'stpageflip-page bg-white';
+                pageWrapper.setAttribute('data-density', idx === 0 || idx === state.pages.length - 1 ? 'hard' : 'soft');
+
+                const img = document.createElement('img');
+                img.src = dataUrl;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                img.style.backgroundColor = '#ffffff';
+                img.style.display = 'block';
+
+                pageWrapper.appendChild(img);
+                return pageWrapper;
+            });
+
+            pageFlipInstance.loadFromHTML(pageElements);
+
+            pageFlipInstance.on('flip', (e) => {
+                state.currentPage = e.data;
+                updateNavigationUI();
+                playFlipAudio();
+            });
+
+            updateNavigationUI();
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            if (!toast || !toastText) return;
+            toastText.innerText = msg;
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-10', 'opacity-0');
+            }, 3000);
+        }
+
+        function updateNavigationUI() {
+            const total = state.pages.length;
+            const current = state.currentPage;
+            const counter = document.getElementById('page-counter');
+            const slider = document.getElementById('page-slider');
+            const btnPrev = document.getElementById('btn-prev');
+            const btnNext = document.getElementById('btn-next');
+
+            if (counter) counter.innerText = `Page ${current + 1} of ${total}`;
+            if (slider) {
+                slider.max = Math.max(0, total - 1);
+                slider.value = current;
+            }
+            if (btnPrev) btnPrev.disabled = current <= 0;
+            if (btnNext) btnNext.disabled = current >= total - 1;
+        }
+
+        function turnPrev() {
+            if (pageFlipInstance) pageFlipInstance.flipPrev();
+        }
+
+        function turnNext() {
+            if (pageFlipInstance) pageFlipInstance.flipNext();
+        }
+
+        function jumpToPage(pageIdx) {
+            if (pageFlipInstance) pageFlipInstance.flip(pageIdx);
+        }
+
+        function toggleSound() {
+            state.sound = !state.sound;
+            const btn = document.getElementById('sound-btn');
+            if (btn) {
+                btn.className = state.sound 
+                    ? 'p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors' 
+                    : 'p-1.5 hover:bg-neutral-100 rounded text-neutral-300 transition-colors';
+            }
+            showToast(state.sound ? 'Sound enabled' : 'Sound muted');
+        }
+
+        function adjustZoom(delta) {
+            state.zoom = Math.max(0.6, Math.min(2.0, state.zoom + delta));
+            const wrapper = document.getElementById('zoom-wrapper');
+            if (wrapper) wrapper.style.transform = `scale(${state.zoom})`;
+        }
+
+        function resetZoom() {
+            state.zoom = 1;
+            const wrapper = document.getElementById('zoom-wrapper');
+            if (wrapper) wrapper.style.transform = `scale(1)`;
+        }
+
+        function toggleThumbnails() {
+            const drawer = document.getElementById('thumb-drawer');
+            if (!drawer) return;
+            drawer.classList.toggle('-ml-56');
+        }
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().catch(() => showToast('Fullscreen mode blocked'));
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function buildThumbnails() {
+            const container = document.getElementById('thumb-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            state.pages.forEach((src, idx) => {
+                const item = document.createElement('div');
+                item.className = 'cursor-pointer rounded border border-neutral-200 overflow-hidden hover:border-neutral-900 transition-all p-1 bg-white';
+                item.onclick = () => jumpToPage(idx);
+
+                const img = document.createElement('img');
+                img.src = src;
+                img.className = 'w-full h-auto object-contain rounded-sm';
+
+                const label = document.createElement('div');
+                label.className = 'text-[10px] text-center text-neutral-500 mt-1';
+                label.innerText = `Page ${idx + 1}`;
+
+                item.appendChild(img);
+                item.appendChild(label);
+                container.appendChild(item);
+            });
+        }
+
+        function openShareModal() {
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function copyShareLink() {
+            showToast('Share link copied to clipboard!');
+            closeShareModal();
+        }
+
+        function exportStandaloneHTML() {
+            showToast('Preparing standalone book HTML...');
+            const pagesJSON = JSON.stringify(state.pages);
+            const standaloneContent = `<!DOCTYPE html>
+<html lang="en" class="h-full select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${state.fileName.replace('.pdf', '')} - Flippable Book</title>
+    <script src="https://cdn.tailwindcss.com"><\/script>
+    <script src="https://unpkg.com/lucide@latest"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
+    <style>
+        .stpageflip-page, .stpageflip-page *, .page-flip-container canvas {
+            background-color: #ffffff !important;
+            opacity: 1 !important;
+            backface-visibility: hidden !important;
+        }
+        .stpageflip-page { 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12); 
+            transform-style: preserve-3d;
+            isolation: isolate;
+        }
+        .stpageflip-page::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to right, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.01) 4%, transparent 12%, transparent 88%, rgba(0,0,0,0.01) 96%, rgba(0,0,0,0.05) 100%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        .menu-popover {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .menu-popover.hidden-menu {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px) scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-[#f5f5f7] text-neutral-900 h-full flex flex-col overflow-hidden relative font-sans">
+    
+    <div class="flex-1 flex items-center justify-center p-2 sm:p-6 relative overflow-hidden h-full" id="stage-area">
+        <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
+            <div id="flipbook-root" class="page-flip-container"></div>
+        </div>
+    </div>
+
+    <div id="floating-bar" class="fixed bottom-5 right-5 z-50 flex items-center space-x-2 transition-opacity duration-500 opacity-100">
+        <!-- Main Quick Toggle Action Button (3-Dot Menu) -->
+        <div class="relative">
+            <!-- 3-Dot Menu Popover Panel -->
+            <div id="menu-popover" class="menu-popover hidden-menu absolute bottom-14 right-0 bg-white/95 backdrop-blur-md border border-neutral-200 shadow-2xl rounded-2xl p-3 w-64 text-xs space-y-3">
+                <div class="flex items-center justify-between pb-2 border-b border-neutral-100 font-semibold text-neutral-800">
+                    <span id="page-counter">Page 1 of ${state.pages.length}</span>
+                    <button onclick="toggleFullscreen()" class="p-1 hover:bg-neutral-100 rounded text-neutral-600" title="Toggle Fullscreen">
+                        <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <!-- Page Navigation Controls -->
+                <div class="flex items-center justify-between space-x-2">
+                    <button onclick="turnPrev()" id="btn-prev" class="flex-1 py-1.5 px-2 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800 font-medium transition-colors flex items-center justify-center space-x-1 disabled:opacity-30">
+                        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        <span>Prev</span>
+                    </button>
+                    <button onclick="turnNext()" id="btn-next" class="flex-1 py-1.5 px-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded font-medium transition-colors flex items-center justify-center space-x-1 disabled:opacity-30">
+                        <span>Next</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <!-- Audio Settings Controls -->
+                <div class="pt-2 border-t border-neutral-100 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-neutral-600 font-medium">Page Flip Sound</span>
+                        <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-neutral-600 font-medium">Background Music</span>
+                        <button onclick="toggleBgmSound()" id="bgm-btn" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-400">
+                            <i data-lucide="music" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
+                    <div class="space-y-1 pt-1">
+                        <div class="flex justify-between text-[10px] text-neutral-500">
+                            <span>Music Volume</span>
+                            <span id="bgm-vol-text">${Math.round(state.bgmVolume * 100)}%</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.05" value="${state.bgmVolume}" oninput="setBgmVol(this.value)" class="w-full accent-neutral-900">
+                    </div>
+                </div>
+
+                <!-- Zoom Controls -->
+                <div class="pt-2 border-t border-neutral-100 flex items-center justify-around">
+                    <button onclick="adjustZoom(-0.1)" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Zoom Out"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+                    <button onclick="resetZoom()" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Reset Zoom"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i></button>
+                    <button onclick="adjustZoom(0.1)" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Zoom In"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+                </div>
+            </div>
+
+            <!-- Floating 3-Dot Menu Toggle Button -->
+            <button onclick="toggleMenuPopover()" class="w-11 h-11 bg-neutral-900 text-white hover:bg-neutral-800 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 border border-neutral-700/50">
+                <i data-lucide="more-vertical" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const pages = ${pagesJSON};
+        let pageFlipInstance = null;
+        let zoomVal = 1;
+        let soundEnabled = ${state.sound};
+        let bgmEnabled = ${state.bgm};
+        let bgmTrack = ${JSON.stringify(state.bgmTrack)};
+        let customAudioData = ${JSON.stringify(state.customAudioData)};
+        let bgmVolume = ${state.bgmVolume};
+        let flipVolume = ${state.flipVolume};
+        let currentPage = 0;
+
+        let audioCtx = null;
+        let bgmGainNode = null;
+        let bgmOscillators = [];
+        let customAudioEl = null;
+
+        let hideTimer = null;
+
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioCtx();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // Synthesized Page Flip Sound Effect Engine
+        function playFlipAudio() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                const bufferSize = ctx.sampleRate * 0.22; 
+                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(850, ctx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(280, ctx.currentTime + 0.18);
+                filter.Q.value = 2.0;
+
+                const gain = ctx.createGain();
+                const peakGain = 0.18 * flipVolume;
+                gain.gain.setValueAtTime(0.001, ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(peakGain, ctx.currentTime + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(ctx.destination);
+
+                noise.start();
+            } catch (e) {}
+        }
+
+        // Embedded Synthesizer Background Music Engine
+        function startBgm() {
+            stopBgm();
+            if (!bgmEnabled) return;
+
+            if (bgmTrack === 'custom' && customAudioData) {
+                if (!customAudioEl) {
+                    customAudioEl = new Audio(customAudioData);
+                    customAudioEl.loop = true;
+                }
+                customAudioEl.volume = bgmVolume;
+                customAudioEl.play().catch(() => {});
+                return;
+            }
+
+            try {
+                const ctx = getAudioContext();
+                bgmGainNode = ctx.createGain();
+                bgmGainNode.gain.setValueAtTime(bgmVolume * 0.15, ctx.currentTime);
+                bgmGainNode.connect(ctx.destination);
+
+                let freqs = [220, 277.18, 329.63, 440]; // A Major 7
+                if (bgmTrack === 'lofi') freqs = [174.61, 220, 261.63, 329.63];
+                if (bgmTrack === 'zen') freqs = [130.81, 196.00, 261.63, 392.00];
+
+                bgmOscillators = freqs.map((freq) => {
+                    const osc = ctx.createOscillator();
+                    const lfo = ctx.createOscillator();
+                    const lfoGain = ctx.createGain();
+
+                    osc.type = bgmTrack === 'zen' ? 'sine' : 'triangle';
+                    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+                    lfo.frequency.setValueAtTime(0.2 + Math.random() * 0.1, ctx.currentTime);
+                    lfoGain.gain.setValueAtTime(1.5, ctx.currentTime);
+                    lfo.connect(osc.frequency);
+                    lfo.start();
+
+                    osc.connect(bgmGainNode);
+                    osc.start();
+                    return { osc, lfo };
+                });
+            } catch(e) {}
+        }
+
+        function stopBgm() {
+            if (customAudioEl) {
+                customAudioEl.pause();
+                customAudioEl = null;
+            }
+            if (bgmOscillators.length) {
+                bgmOscillators.forEach(o => {
+                    try { o.osc.stop(); o.lfo.stop(); } catch(e){}
+                });
+                bgmOscillators = [];
+            }
+        }
+
+        function toggleFlipSound() {
+            soundEnabled = !soundEnabled;
+            const btn = document.getElementById('sound-btn');
+            btn.className = soundEnabled 
+                ? 'p-1.5 bg-neutral-900 text-white rounded' 
+                : 'p-1.5 bg-neutral-100 text-neutral-400 rounded';
+            if (soundEnabled) playFlipAudio();
+        }
+
+        function toggleBgmSound() {
+            bgmEnabled = !bgmEnabled;
+            const btn = document.getElementById('bgm-btn');
+            if (bgmEnabled) {
+                btn.className = 'p-1.5 bg-neutral-900 text-white rounded';
+                startBgm();
+            } else {
+                btn.className = 'p-1.5 bg-neutral-100 text-neutral-400 rounded';
+                stopBgm();
+            }
+        }
+
+        function setBgmVol(val) {
+            bgmVolume = parseFloat(val);
+            document.getElementById('bgm-vol-text').innerText = Math.round(bgmVolume * 100) + '%';
+            if (bgmGainNode && audioCtx) {
+                bgmGainNode.gain.setValueAtTime(bgmVolume * 0.15, audioCtx.currentTime);
+            }
+            if (customAudioEl) {
+                customAudioEl.volume = bgmVolume;
+            }
+        }
+
+        function toggleMenuPopover() {
+            const popover = document.getElementById('menu-popover');
+            popover.classList.toggle('hidden-menu');
+            resetAutoHideTimer();
+        }
+
+        // Auto-Hiding Controls Logic
+        function resetAutoHideTimer() {
+            const floatingBar = document.getElementById('floating-bar');
+            floatingBar.classList.remove('opacity-0');
+            floatingBar.classList.add('opacity-100');
+
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+                const popover = document.getElementById('menu-popover');
+                // Only hide floating bar if 3-dot menu isn't currently opened by user
+                if (popover.classList.contains('hidden-menu')) {
+                    floatingBar.classList.remove('opacity-100');
+                    floatingBar.classList.add('opacity-0');
+                }
+            }, 3500);
+        }
+
+        document.addEventListener('mousemove', resetAutoHideTimer);
+        document.addEventListener('touchstart', resetAutoHideTimer);
+
+        window.onload = function() {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+
+            const PageFlipClass = window.St?.PageFlip || window.PageFlip?.PageFlip || window.PageFlip;
+            if(!PageFlipClass) return;
+
+            const isMobile = window.innerWidth < 768;
+            const stageWidth = Math.min(window.innerWidth - (isMobile ? 12 : 32), 1000);
+            const stageHeight = Math.min(window.innerHeight - 30, 800);
+
+            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
+            let pageH = Math.floor(stageHeight);
+
+            pageFlipInstance = new PageFlipClass(document.getElementById('flipbook-root'), {
+                width: pageW,
+                height: pageH,
+                size: "fixed",
+                drawShadow: true,
+                maxShadowOpacity: 0.2,
+                flippingTime: 450,
+                swipeDistance: 30,
+                usePortrait: isMobile,
+                showCover: true,
+                useMouseEvents: true,
+                clickEventForward: true
+            });
+
+            const els = pages.map(src => {
+                const wrap = document.createElement('div');
+                wrap.className = 'stpageflip-page bg-white';
+                const img = document.createElement('img');
+                img.src = src;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                wrap.appendChild(img);
+                return wrap;
+            });
+
+            pageFlipInstance.loadFromHTML(els);
+
+            pageFlipInstance.on('flip', (e) => {
+                currentPage = e.data;
+                document.getElementById('page-counter').innerText = 'Page ' + (currentPage + 1) + ' of ' + pages.length;
+                document.getElementById('btn-prev').disabled = currentPage <= 0;
+                document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
+                playFlipAudio();
+            });
+
+            // Unlock audio context on initial page touch/click (Crucial for Google Sites & iFrame embed policies)
+            document.addEventListener('click', () => {
+                getAudioContext();
+                if (bgmEnabled && !bgmOscillators.length && !customAudioEl) {
+                    startBgm();
+                }
+            }, { once: true });
+
+            resetAutoHideTimer();
+        };
+
+        function turnPrev() { if(pageFlipInstance) pageFlipInstance.flipPrev(); }
+        function turnNext() { if(pageFlipInstance) pageFlipInstance.flipNext(); }
+        function adjustZoom(delta) {
+            zoomVal = Math.max(0.6, Math.min(2.0, zoomVal + delta));
+            document.getElementById('zoom-wrapper').style.transform = 'scale(' + zoomVal + ')';
+        }
+        function resetZoom() {
+            zoomVal = 1;
+            document.getElementById('zoom-wrapper').style.transform = 'scale(1)';
+        }
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(()=>{});
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+    <\/script>
+</body>
+</html>`;
+
+            const blob = new Blob([standaloneContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${state.fileName.replace('.pdf', '')}_flippable_book.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+            closeShareModal();
+        }
+    </script>
+</body>
+</html>
