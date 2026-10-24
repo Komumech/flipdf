@@ -633,10 +633,17 @@
                 const buffer = await file.arrayBuffer();
                 const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
                 let extracted = [];
+                const isMobile = window.matchMedia('(max-width: 767px)').matches;
+                const maxPixelsPerPage = isMobile ? 1400000 : 2600000;
+                const renderScale = isMobile ? 1.35 : 1.8;
 
                 for (let i = 1; i <= doc.numPages; i++) {
                     const page = await doc.getPage(i);
-                    const viewport = page.getViewport({ scale: 2.0 });
+                    let viewport = page.getViewport({ scale: renderScale });
+                    const pixelCount = viewport.width * viewport.height;
+                    if (pixelCount > maxPixelsPerPage) {
+                        viewport = page.getViewport({ scale: renderScale * Math.sqrt(maxPixelsPerPage / pixelCount) });
+                    }
                     const canvas = document.createElement('canvas');
                     canvas.width = viewport.width;
                     canvas.height = viewport.height;
@@ -647,9 +654,13 @@
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-                    extracted.push(canvas.toDataURL('image/jpeg', 0.95)); // JPEG for 100% opaque pages
+                    extracted.push(canvas.toDataURL('image/jpeg', isMobile ? 0.82 : 0.88));
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    page.cleanup();
                 }
 
+                await doc.destroy();
                 state.pages = extracted;
                 launchReader();
             } catch (e) {
@@ -746,9 +757,10 @@
                 return;
             }
 
-            const isMobile = window.innerWidth < 768;
-            const stageWidth = Math.min(window.innerWidth - (isMobile ? 16 : 64), 1000);
-            const stageHeight = Math.min(window.innerHeight - 130, 800);
+            const isMobile = window.matchMedia('(max-width: 767px)').matches;
+            const stage = document.getElementById('stage-viewport');
+            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 64), 1000);
+            const stageHeight = Math.min(stage.clientHeight - 16, 800);
 
             let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
             let pageH = Math.floor(stageHeight);
@@ -788,9 +800,9 @@
                 minHeight: 350,
                 maxHeight: 1200,
                 drawShadow: true,
-                maxShadowOpacity: 0.38,
-                flippingTime: 750,
-                swipeDistance: 18,
+                maxShadowOpacity: isMobile ? 0.2 : 0.38,
+                flippingTime: isMobile ? 520 : 750,
+                swipeDistance: isMobile ? 32 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,
                 startPage: 0,
@@ -826,29 +838,6 @@
                 updateNavigationUI();
                 playFlipAudio();
             });
-
-            if (isMobile) {
-                const stage = document.getElementById('stage-viewport');
-                let tapStart = null;
-                stage.addEventListener('pointerdown', (event) => {
-                    if (!event.target.closest('#flipbook-root')) return;
-                    tapStart = { x: event.clientX, y: event.clientY, time: Date.now() };
-                }, { passive: true });
-                stage.addEventListener('pointerup', (event) => {
-                    if (!tapStart || Date.now() - tapStart.time > 350) {
-                        tapStart = null;
-                        return;
-                    }
-                    const dx = event.clientX - tapStart.x;
-                    const dy = event.clientY - tapStart.y;
-                    tapStart = null;
-                    if (Math.hypot(dx, dy) > 12 || !event.target.closest('#flipbook-root')) return;
-                    const midpoint = stage.getBoundingClientRect().left + stage.clientWidth / 2;
-                    if (event.clientX >= midpoint) turnNext();
-                    else turnPrev();
-                }, { passive: true });
-                stage.addEventListener('pointercancel', () => { tapStart = null; }, { passive: true });
-            }
 
             updateNavigationUI();
         }
@@ -950,6 +939,8 @@
                 const img = document.createElement('img');
                 img.src = src;
                 img.className = 'w-full h-auto object-contain rounded-sm';
+                img.loading = 'lazy';
+                img.decoding = 'async';
 
                 const label = document.createElement('div');
                 label.className = 'text-[10px] text-center text-neutral-500 mt-1';
@@ -1457,9 +1448,9 @@
                 height: pageH,
                 size: "fixed",
                 drawShadow: true,
-                maxShadowOpacity: 0.38,
-                flippingTime: 750,
-                swipeDistance: 18,
+                maxShadowOpacity: isMobile ? 0.2 : 0.38,
+                flippingTime: isMobile ? 520 : 750,
+                swipeDistance: isMobile ? 32 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,
                 showCover: true,
@@ -1488,31 +1479,6 @@
                 document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
                 playFlipAudio();
             });
-
-            if (isMobile) {
-                const stage = document.getElementById('stage-area');
-                let touchStart = null;
-                stage.addEventListener('pointerdown', (event) => {
-                    if (!event.target.closest('#flipbook-root')) return;
-                    touchStart = { x: event.clientX, y: event.clientY, time: Date.now() };
-                }, { passive: true });
-                stage.addEventListener('pointerup', (event) => {
-                    if (!touchStart || Date.now() - touchStart.time > 350) {
-                        touchStart = null;
-                        return;
-                    }
-                    const dx = event.clientX - touchStart.x;
-                    const dy = event.clientY - touchStart.y;
-                    const start = touchStart;
-                    touchStart = null;
-                    if (Math.hypot(dx, dy) > 12 || !event.target.closest('#flipbook-root')) return;
-                    const rect = stage.getBoundingClientRect();
-                    const center = rect.left + rect.width / 2;
-                    if (event.clientX >= center) turnNext();
-                    else turnPrev();
-                }, { passive: true });
-                stage.addEventListener('pointercancel', () => { touchStart = null; }, { passive: true });
-            }
 
             // Start background music automatically
             try {
