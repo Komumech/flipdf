@@ -37,16 +37,12 @@
             touch-action: none;
         }
 
-        /* Enforce absolute opacity and solid white background on container, canvas, and pages */
+        /* Keep page surfaces opaque without overriding the flip engine's 3D rendering. */
         .stpageflip-page, 
-        .stpageflip-page *, 
         .stpageflip-container,
         .stpageflip-wrapper,
         .page-flip-container canvas {
             background-color: #ffffff !important;
-            opacity: 1 !important;
-            backface-visibility: hidden !important;
-            -webkit-backface-visibility: hidden !important;
         }
 
         .stpageflip-page {
@@ -800,8 +796,8 @@
                 minHeight: 350,
                 maxHeight: 1200,
                 drawShadow: true,
-                maxShadowOpacity: isMobile ? 0.2 : 0.38,
-                flippingTime: isMobile ? 520 : 750,
+                maxShadowOpacity: 0.38,
+                flippingTime: 750,
                 swipeDistance: isMobile ? 32 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,
@@ -1048,10 +1044,8 @@
     <script src="https://unpkg.com/lucide@latest"><\/script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
     <style>
-        .stpageflip-page, .stpageflip-page *, .page-flip-container canvas {
+        .stpageflip-page, .page-flip-container canvas {
             background-color: #ffffff !important;
-            opacity: 1 !important;
-            backface-visibility: hidden !important;
         }
         .page-flip-container { display: flex; justify-content: center; align-items: center; margin: auto; position: relative; touch-action: none; }
         .stpageflip-page { 
@@ -1448,8 +1442,8 @@
                 height: pageH,
                 size: "fixed",
                 drawShadow: true,
-                maxShadowOpacity: isMobile ? 0.2 : 0.38,
-                flippingTime: isMobile ? 520 : 750,
+                maxShadowOpacity: 0.38,
+                flippingTime: 750,
                 swipeDistance: isMobile ? 32 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,

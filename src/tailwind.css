@@ -36,14 +36,10 @@ body {
 }
 
 .stpageflip-page,
-.stpageflip-page *,
 .stpageflip-container,
 .stpageflip-wrapper,
 .page-flip-container canvas {
   background-color: #ffffff !important;
-  opacity: 1 !important;
-  backface-visibility: hidden !important;
-  -webkit-backface-visibility: hidden !important;
 }
 
 .stpageflip-page {
