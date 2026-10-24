@@ -17,6 +17,8 @@
     </script>
     <!-- PageFlip JS for true 3D page bending & physical peel mechanics -->
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+    <!-- Neural Microsoft Edge voices. Direct browser synthesis requires Microsoft Edge. -->
+    <script src="https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js"></script>
     <!-- Firebase: set firebaseConfig below to your Firebase web app configuration. -->
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
@@ -253,7 +255,7 @@
                     <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
                         <option value="">Loading available voices…</option>
                     </select>
-                    <p class="text-[10px] text-neutral-400 mt-1">Microsoft Edge voices appear when available on your device.</p>
+                    <p class="text-[10px] text-neutral-400 mt-1">Neural Microsoft Edge voices. Direct playback requires the Edge browser.</p>
                 </div>
 
                 <div>
@@ -324,14 +326,21 @@
         };
 
         let pageFlipInstance = null;
+        let thumbRenderIndex = 0;
         let bgmAudioCtx = null;
         let bgmOscillators = [];
         let bgmGainNode = null;
         let customAudioEl = null;
         let readerSpeechActive = false;
         let readerSpeechPage = 0;
-        let readerSpeechVoiceURI = localStorage.getItem('flipdf-reader-voice') || '';
+        let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
         let readerSpeechToken = 0;
+        let readerSpeechAudio = null;
+        let readerSpeechUrls = [];
+        let readerSpeechPageAudioCache = new Map();
+        let edgeTts = null;
+        let edgeTtsVoices = [];
+        let pdfLoadToken = 0;
         const flipAudio = new Audio('flip.mp3');
         flipAudio.preload = 'auto';
         let firebaseApp = null;
@@ -354,45 +363,50 @@
             return firebaseApp;
         }
 
-        function getReaderVoices() {
-            return ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
-        }
-
-        function populateReaderVoices() {
+        async function populateReaderVoices() {
             const select = document.getElementById('reader-voice-select');
             if (!select) return;
-            const voices = getReaderVoices();
-            select.innerHTML = '';
-            if (!voices.length) {
-                select.innerHTML = '<option value="">Device default voice</option>';
+            if (!window.EdgeTTS) {
+                select.innerHTML = '<option value="">Neural voices unavailable</option>';
                 return;
             }
-            const preferred = voices.filter(voice => /microsoft|natural|edge/i.test(voice.name));
-            const ordered = [...preferred, ...voices.filter(voice => !preferred.includes(voice))];
-            ordered.forEach(voice => {
+            try {
+                edgeTts ||= new window.EdgeTTS();
+                edgeTtsVoices = await edgeTts.getVoices();
+                select.innerHTML = '';
+                edgeTtsVoices.forEach(voice => {
                 const option = document.createElement('option');
-                option.value = voice.voiceURI;
-                option.textContent = `${voice.name}${voice.lang ? ` · ${voice.lang}` : ''}`;
+                option.value = voice.ShortName;
+                option.textContent = `${voice.FriendlyName || voice.Name} · ${voice.Locale}`;
                 select.appendChild(option);
-            });
-            if (readerSpeechVoiceURI && voices.some(voice => voice.voiceURI === readerSpeechVoiceURI)) {
-                select.value = readerSpeechVoiceURI;
-            } else if (preferred.length) {
-                readerSpeechVoiceURI = preferred[0].voiceURI;
-                select.value = readerSpeechVoiceURI;
+                });
+                const savedVoice = edgeTtsVoices.find(voice => voice.ShortName === readerSpeechVoiceName);
+                const defaultVoice = edgeTtsVoices.find(voice => voice.ShortName === 'en-US-AriaNeural') || edgeTtsVoices.find(voice => voice.Locale === 'en-US');
+                readerSpeechVoiceName = (savedVoice || defaultVoice || edgeTtsVoices[0])?.ShortName || '';
+                select.value = readerSpeechVoiceName;
+            } catch (error) {
+                console.error('Unable to load Edge neural voices', error);
+                select.innerHTML = '<option value="">Unable to load voices</option>';
             }
         }
 
-        function setReaderVoice(voiceURI) {
-            readerSpeechVoiceURI = voiceURI;
-            if (voiceURI) localStorage.setItem('flipdf-reader-voice', voiceURI);
+        function setReaderVoice(voiceName) {
+            readerSpeechVoiceName = voiceName;
+            if (voiceName) localStorage.setItem('flipdf-reader-voice', voiceName);
             else localStorage.removeItem('flipdf-reader-voice');
-            if (readerSpeechActive) speakReaderPage(readerSpeechPage, readerSpeechToken);
+            if (readerSpeechActive) {
+                readerSpeechToken++;
+                if (readerSpeechAudio) readerSpeechAudio.pause();
+                readerSpeechPageAudioCache.clear();
+                readerSpeechUrls.forEach(URL.revokeObjectURL);
+                readerSpeechUrls = [];
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+            }
         }
 
         function toggleReaderSpeech() {
-            if (!('speechSynthesis' in window)) {
-                showToast('Speech reading is not supported by this browser');
+            if (!window.EdgeTTS) {
+                showToast('Neural reader unavailable. Check your connection and use Microsoft Edge.');
                 return;
             }
             if (readerSpeechActive) {
@@ -414,7 +428,13 @@
         function stopReaderSpeech() {
             readerSpeechActive = false;
             readerSpeechToken++;
-            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (readerSpeechAudio) {
+                readerSpeechAudio.pause();
+                readerSpeechAudio = null;
+            }
+            readerSpeechUrls.forEach(URL.revokeObjectURL);
+            readerSpeechUrls = [];
+            readerSpeechPageAudioCache.clear();
             updateReaderSpeechButton();
         }
 
@@ -430,7 +450,7 @@
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
 
-        function speakReaderPage(pageIndex, token) {
+        async function speakReaderPage(pageIndex, token) {
             if (!readerSpeechActive || token !== readerSpeechToken) return;
             if (pageIndex >= state.pages.length || !state.pageText[pageIndex]?.trim()) {
                 stopReaderSpeech();
@@ -439,53 +459,88 @@
             }
             readerSpeechPage = pageIndex;
             if (pageIndex !== state.currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
-            const text = state.pageText[pageIndex].replace(/\s+/g, ' ').trim();
-            const words = text.split(' ');
+            try {
+                const voiceName = readerSpeechVoiceName || 'en-US-AriaNeural';
+                const pageAudio = await getReaderPageAudio(pageIndex, voiceName, token);
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < state.pageText.length && !state.pageText[nextPage]?.trim()) nextPage++;
+                if (nextPage < state.pageText.length) getReaderPageAudio(nextPage, voiceName, token).catch(() => {});
+                for (const audioUrl of pageAudio) {
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    await playReaderAudio(audioUrl, token);
+                }
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                if (nextPage < state.pageText.length) speakReaderPage(nextPage, token);
+                else stopReaderSpeech();
+            } catch (error) {
+                console.error('Edge neural speech failed', error);
+                stopReaderSpeech();
+                showToast('Neural voice could not connect. Check Edge and your internet connection.');
+            }
+        }
+
+        function splitSpeechText(value, maxLength = 1800) {
+            const words = value.replace(/\s+/g, ' ').trim().split(' ');
             const chunks = [];
             let chunk = '';
             words.forEach(word => {
-                if (chunk && `${chunk} ${word}`.length > 1200) {
+                if (chunk && `${chunk} ${word}`.length > maxLength) {
                     chunks.push(chunk);
                     chunk = word;
                 } else chunk = chunk ? `${chunk} ${word}` : word;
             });
             if (chunk) chunks.push(chunk);
-            speakReaderChunk(pageIndex, token, chunks, 0);
+            return chunks;
         }
 
-        function speakReaderChunk(pageIndex, token, chunks, chunkIndex) {
-            if (!readerSpeechActive || token !== readerSpeechToken) return;
-            const utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
-            const voice = getReaderVoices().find(item => item.voiceURI === readerSpeechVoiceURI);
-            if (voice) {
-                utterance.voice = voice;
-                utterance.lang = voice.lang;
-            }
-            utterance.onend = () => {
-                if (!readerSpeechActive || token !== readerSpeechToken) return;
-                if (chunkIndex + 1 < chunks.length) {
-                    speakReaderChunk(pageIndex, token, chunks, chunkIndex + 1);
-                    return;
-                }
-                let nextPage = pageIndex + 1;
-                while (nextPage < state.pageText.length && !state.pageText[nextPage]?.trim()) nextPage++;
-                if (nextPage < state.pageText.length) speakReaderPage(nextPage, token);
-                else stopReaderSpeech();
-            };
-            utterance.onerror = event => {
-                if (event.error !== 'canceled' && event.error !== 'interrupted') {
-                    stopReaderSpeech();
-                    showToast('Could not play the selected reader voice');
-                }
-            };
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
+        function getReaderPageAudio(pageIndex, voiceName, token) {
+            const cacheKey = `${pageIndex}:${voiceName}`;
+            if (readerSpeechPageAudioCache.has(cacheKey)) return readerSpeechPageAudioCache.get(cacheKey);
+            const audioPromise = Promise.all(splitSpeechText(state.pageText[pageIndex]).map(text =>
+                edgeTts.generate(text, voiceName, { outputFormat: 'audio-24khz-96kbitrate-mono-mp3' })
+            )).then(results => {
+                if (!readerSpeechActive || token !== readerSpeechToken) return [];
+                return results.map(result => {
+                    const url = URL.createObjectURL(new Blob([result.audio], { type: 'audio/mpeg' }));
+                    readerSpeechUrls.push(url);
+                    return url;
+                });
+            });
+            readerSpeechPageAudioCache.set(cacheKey, audioPromise);
+            return audioPromise;
         }
 
-        if ('speechSynthesis' in window) {
+        function playReaderAudio(url, token) {
+            return new Promise((resolve, reject) => {
+                const audio = new Audio(url);
+                readerSpeechAudio = audio;
+                audio.onended = resolve;
+                audio.onpause = () => {
+                    if (!readerSpeechActive || token !== readerSpeechToken) resolve();
+                };
+                audio.onerror = () => reject(new Error('Audio playback failed'));
+                audio.play().catch(reject);
+                if (!readerSpeechActive || token !== readerSpeechToken) {
+                    audio.pause();
+                    resolve();
+                }
+            });
+        }
+
+        function initializeNeuralReader() {
             populateReaderVoices();
-            window.speechSynthesis.addEventListener('voiceschanged', populateReaderVoices);
+            if (window.EdgeTTS) return;
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js';
+            script.onload = populateReaderVoices;
+            script.onerror = () => {
+                const select = document.getElementById('reader-voice-select');
+                if (select) select.innerHTML = '<option value="">Unable to load neural voices</option>';
+            };
+            document.head.appendChild(script);
         }
+        initializeNeuralReader();
 
         function signInForSharing() {
             const app = getFirebase();
@@ -530,6 +585,7 @@
         function appendCompletionPage() {
             if (state.hasCompletionPage) return;
             state.pages.push(makeCompletionPage());
+            state.pageText.push('');
             state.hasCompletionPage = true;
         }
 
@@ -780,22 +836,43 @@
         });
 
         async function processPDF(file) {
+            const loadToken = ++pdfLoadToken;
+            stopReaderSpeech();
             state.fileName = file.name;
             state.hasCompletionPage = false;
-            showToast('Parsing and rendering PDF...');
+            showToast('Opening PDF…');
             try {
                 const buffer = await file.arrayBuffer();
                 const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
-                let extracted = [];
-                let extractedText = [];
+                if (loadToken !== pdfLoadToken) {
+                    await doc.destroy();
+                    return;
+                }
                 const isMobile = window.matchMedia('(max-width: 767px)').matches;
                 const maxPixelsPerPage = isMobile ? 1400000 : 2600000;
-                const renderScale = isMobile ? 1.35 : 1.8;
+                const renderScale = isMobile ? 1.2 : 1.5;
+                const blankCanvas = document.createElement('canvas');
+                blankCanvas.width = 2;
+                blankCanvas.height = 2;
+                const blankContext = blankCanvas.getContext('2d');
+                blankContext.fillStyle = '#ffffff';
+                blankContext.fillRect(0, 0, 2, 2);
+                const blankPage = blankCanvas.toDataURL('image/jpeg', 0.5);
+                blankCanvas.width = 0;
+                blankCanvas.height = 0;
+                state.pages = Array(doc.numPages).fill(blankPage);
+                state.pageText = Array(doc.numPages).fill('');
+                const firstBatchSize = Math.min(4, doc.numPages);
+                let readerLaunched = false;
 
                 for (let i = 1; i <= doc.numPages; i++) {
+                    if (loadToken !== pdfLoadToken) {
+                        await doc.destroy();
+                        return;
+                    }
                     const page = await doc.getPage(i);
                     const textContent = await page.getTextContent();
-                    extractedText.push(textContent.items.map(item => item.str || '').join(' ').replace(/\s+/g, ' ').trim());
+                    state.pageText[i - 1] = textContent.items.map(item => item.str || '').join(' ').replace(/\s+/g, ' ').trim();
                     let viewport = page.getViewport({ scale: renderScale });
                     const pixelCount = viewport.width * viewport.height;
                     if (pixelCount > maxPixelsPerPage) {
@@ -811,20 +888,35 @@
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-                    extracted.push(canvas.toDataURL('image/jpeg', isMobile ? 0.82 : 0.88));
+                    const pageImage = canvas.toDataURL('image/jpeg', isMobile ? 0.82 : 0.88);
+                    state.pages[i - 1] = pageImage;
                     canvas.width = 0;
                     canvas.height = 0;
                     page.cleanup();
+                    if (readerLaunched) updateRenderedPage(i - 1, pageImage);
+
+                    if (!readerLaunched && i === firstBatchSize) {
+                        readerLaunched = true;
+                        launchReader();
+                        showToast(`Book ready · rendering ${doc.numPages - i} more pages…`);
+                    } else if (readerLaunched && (i % 8 === 0 || i === doc.numPages)) {
+                        showToast(`Rendering page ${i} of ${doc.numPages}…`);
+                    }
                 }
 
                 await doc.destroy();
-                state.pages = extracted;
-                state.pageText = extractedText;
-                launchReader();
+                if (loadToken === pdfLoadToken) showToast(`Ready · ${doc.numPages} pages rendered`);
             } catch (e) {
                 console.error(e);
-                showToast('Unable to parse PDF file');
+                if (loadToken === pdfLoadToken) showToast('Unable to parse PDF file');
             }
+        }
+
+        function updateRenderedPage(pageIndex, pageImage) {
+            const pageImageElement = document.querySelector(`#flipbook-root img[data-page-index="${pageIndex}"]`);
+            if (pageImageElement) pageImageElement.src = pageImage;
+            const thumbnailImage = document.querySelector(`#thumb-container img[data-page-index="${pageIndex}"]`);
+            if (thumbnailImage) thumbnailImage.src = pageImage;
         }
 
         function loadSampleBook(type) {
@@ -981,6 +1073,7 @@
 
                 const img = document.createElement('img');
                 img.src = dataUrl;
+                img.dataset.pageIndex = idx;
                 img.style.width = '100%';
                 img.style.height = '100%';
                 img.style.objectFit = 'contain';
@@ -994,12 +1087,12 @@
             pageFlipInstance.loadFromHTML(pageElements);
 
             pageFlipInstance.on('flip', (e) => {
+                state.currentPage = e.data;
                 if (readerSpeechActive && e.data !== readerSpeechPage) {
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
-                state.currentPage = e.data;
                 updateNavigationUI();
                 playFlipAudio();
             });
@@ -1095,14 +1188,26 @@
             const container = document.getElementById('thumb-container');
             if (!container) return;
             container.innerHTML = '';
+            thumbRenderIndex = 0;
+            container.onscroll = () => {
+                if (container.scrollTop + container.clientHeight >= container.scrollHeight - 120) appendThumbnailBatch();
+            };
+            appendThumbnailBatch();
+        }
 
-            state.pages.forEach((src, idx) => {
+        function appendThumbnailBatch() {
+            const container = document.getElementById('thumb-container');
+            if (!container || thumbRenderIndex >= state.pages.length) return;
+            const batchEnd = Math.min(thumbRenderIndex + 40, state.pages.length);
+            for (let idx = thumbRenderIndex; idx < batchEnd; idx++) {
+                const src = state.pages[idx];
                 const item = document.createElement('div');
                 item.className = 'cursor-pointer rounded border border-neutral-200 overflow-hidden hover:border-neutral-900 transition-all p-1 bg-white';
                 item.onclick = () => jumpToPage(idx);
 
                 const img = document.createElement('img');
                 img.src = src;
+                img.dataset.pageIndex = idx;
                 img.className = 'w-full h-auto object-contain rounded-sm';
                 img.loading = 'lazy';
                 img.decoding = 'async';
@@ -1114,7 +1219,8 @@
                 item.appendChild(img);
                 item.appendChild(label);
                 container.appendChild(item);
-            });
+            }
+            thumbRenderIndex = batchEnd;
         }
 
         function openShareModal() {
@@ -1220,6 +1326,7 @@
     <style>${tailwindCss}</style>
     <script src="https://unpkg.com/lucide@latest"><\/script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
+    <script src="https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js"><\/script>
     <style>
         .stpageflip-page, .page-flip-container canvas {
             background-color: #ffffff !important;
@@ -1398,7 +1505,10 @@
         let readerSpeechActive = false;
         let readerSpeechPage = 0;
         let readerSpeechToken = 0;
-        let readerSpeechVoiceURI = localStorage.getItem('flipdf-reader-voice') || '';
+        let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
+        let edgeTts = null;
+        let readerSpeechAudio = null;
+        let readerSpeechUrls = [];
         const flipAudio = new Audio('flip.mp3');
         flipAudio.preload = 'auto';
 
@@ -1409,42 +1519,47 @@
 
         let hideTimer = null;
 
-        function getReaderVoices() {
-            return ('speechSynthesis' in window) ? window.speechSynthesis.getVoices() : [];
-        }
-
-        function populateReaderVoices() {
+        async function populateReaderVoices() {
             const select = document.getElementById('reader-voice-select');
             if (!select) return;
-            const voices = getReaderVoices();
-            select.innerHTML = '';
-            if (!voices.length) {
-                select.innerHTML = '<option value="">Device default voice</option>';
+            if (!window.EdgeTTS) {
+                select.innerHTML = '<option value="">Neural voices unavailable</option>';
                 return;
             }
-            const preferred = voices.filter(voice => /microsoft|natural|edge/i.test(voice.name));
-            [...preferred, ...voices.filter(voice => !preferred.includes(voice))].forEach(voice => {
+            try {
+                edgeTts = edgeTts || new window.EdgeTTS();
+                const voices = await edgeTts.getVoices();
+                select.innerHTML = '';
+                voices.forEach(voice => {
                 const option = document.createElement('option');
-                option.value = voice.voiceURI;
-                option.textContent = voice.name + (voice.lang ? ' · ' + voice.lang : '');
+                option.value = voice.ShortName;
+                option.textContent = (voice.FriendlyName || voice.Name) + ' · ' + voice.Locale;
                 select.appendChild(option);
-            });
-            if (readerSpeechVoiceURI && voices.some(voice => voice.voiceURI === readerSpeechVoiceURI)) select.value = readerSpeechVoiceURI;
-            else if (preferred.length) {
-                readerSpeechVoiceURI = preferred[0].voiceURI;
-                select.value = readerSpeechVoiceURI;
+                });
+                const saved = voices.find(voice => voice.ShortName === readerSpeechVoiceName);
+                const fallback = voices.find(voice => voice.ShortName === 'en-US-AriaNeural') || voices.find(voice => voice.Locale === 'en-US') || voices[0];
+                readerSpeechVoiceName = (saved || fallback || {}).ShortName || '';
+                select.value = readerSpeechVoiceName;
+            } catch (error) {
+                select.innerHTML = '<option value="">Unable to load voices</option>';
             }
         }
 
-        function setReaderVoice(voiceURI) {
-            readerSpeechVoiceURI = voiceURI;
-            if (voiceURI) localStorage.setItem('flipdf-reader-voice', voiceURI);
+        function setReaderVoice(voiceName) {
+            readerSpeechVoiceName = voiceName;
+            if (voiceName) localStorage.setItem('flipdf-reader-voice', voiceName);
             else localStorage.removeItem('flipdf-reader-voice');
-            if (readerSpeechActive) speakReaderPage(readerSpeechPage, readerSpeechToken);
+            if (readerSpeechActive) {
+                readerSpeechToken++;
+                if (readerSpeechAudio) readerSpeechAudio.pause();
+                readerSpeechUrls.forEach(URL.revokeObjectURL);
+                readerSpeechUrls = [];
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+            }
         }
 
         function toggleReaderSpeech() {
-            if (!('speechSynthesis' in window)) return;
+            if (!window.EdgeTTS) { alert('Neural reader requires Microsoft Edge and an internet connection.'); return; }
             if (readerSpeechActive) {
                 stopReaderSpeech();
                 return;
@@ -1463,7 +1578,11 @@
         function stopReaderSpeech() {
             readerSpeechActive = false;
             readerSpeechToken++;
-            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (readerSpeechAudio) { readerSpeechAudio.pause(); readerSpeechAudio = null; }
+            readerSpeechUrls.forEach(URL.revokeObjectURL);
+            readerSpeechUrls = [];
+            readerSpeechUrls.forEach(URL.revokeObjectURL);
+            readerSpeechUrls = [];
             updateReaderSpeechButton();
         }
 
@@ -1477,7 +1596,7 @@
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
 
-        function speakReaderPage(pageIndex, token) {
+        async function speakReaderPage(pageIndex, token) {
             if (!readerSpeechActive || token !== readerSpeechToken) return;
             if (pageIndex >= pageText.length || !pageText[pageIndex]?.trim()) {
                 stopReaderSpeech();
@@ -1489,42 +1608,38 @@
             const chunks = [];
             let chunk = '';
             words.forEach(word => {
-                if (chunk && (chunk + ' ' + word).length > 1200) {
-                    chunks.push(chunk);
-                    chunk = word;
-                } else chunk = chunk ? chunk + ' ' + word : word;
+                if (chunk && (chunk + ' ' + word).length > 1800) { chunks.push(chunk); chunk = word; }
+                else chunk = chunk ? chunk + ' ' + word : word;
             });
             if (chunk) chunks.push(chunk);
-            speakReaderChunk(pageIndex, token, chunks, 0);
-        }
-
-        function speakReaderChunk(pageIndex, token, chunks, chunkIndex) {
-            if (!readerSpeechActive || token !== readerSpeechToken) return;
-            const utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
-            const voice = getReaderVoices().find(item => item.voiceURI === readerSpeechVoiceURI);
-            if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
-            utterance.onend = () => {
-                if (!readerSpeechActive || token !== readerSpeechToken) return;
-                if (chunkIndex + 1 < chunks.length) {
-                    speakReaderChunk(pageIndex, token, chunks, chunkIndex + 1);
-                    return;
+            try {
+                for (const text of chunks) {
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    const result = await edgeTts.generate(text, readerSpeechVoiceName || 'en-US-AriaNeural', { outputFormat: 'audio-24khz-96kbitrate-mono-mp3' });
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    const url = URL.createObjectURL(new Blob([result.audio], { type: 'audio/mpeg' }));
+                    readerSpeechUrls.push(url);
+                    await new Promise((resolve, reject) => {
+                        const audio = new Audio(url);
+                        readerSpeechAudio = audio;
+                        audio.onended = resolve;
+                        audio.onpause = () => { if (!readerSpeechActive || token !== readerSpeechToken) resolve(); };
+                        audio.onerror = () => reject(new Error('Audio playback failed'));
+                        audio.play().catch(reject);
+                    });
                 }
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
                 let nextPage = pageIndex + 1;
                 while (nextPage < pageText.length && !pageText[nextPage]?.trim()) nextPage++;
                 if (nextPage < pageText.length) speakReaderPage(nextPage, token);
                 else stopReaderSpeech();
-            };
-            utterance.onerror = event => {
-                if (event.error !== 'canceled' && event.error !== 'interrupted') stopReaderSpeech();
-            };
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utterance);
+            } catch (error) {
+                stopReaderSpeech();
+                alert('Neural voice could not connect. Check your Edge browser and internet connection.');
+            }
         }
 
-        if ('speechSynthesis' in window) {
-            populateReaderVoices();
-            window.speechSynthesis.addEventListener('voiceschanged', populateReaderVoices);
-        }
+        populateReaderVoices();
 
         function getAudioContext() {
             if (!audioCtx) {
@@ -1773,12 +1888,12 @@
             pageFlipInstance.loadFromHTML(els);
 
             pageFlipInstance.on('flip', (e) => {
+                currentPage = e.data;
                 if (readerSpeechActive && e.data !== readerSpeechPage) {
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
-                currentPage = e.data;
                 document.getElementById('page-counter').innerText = 'Page ' + (currentPage + 1) + ' of ' + pages.length;
                 document.getElementById('btn-prev').disabled = currentPage <= 0;
                 document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;

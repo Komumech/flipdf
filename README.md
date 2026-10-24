@@ -14,6 +14,14 @@ Install the project dependencies with `npm install`, then run `npm run build:css
 
 The rules intentionally allow public reads so recipients can view a book from its link. Only the anonymous owner can upload or modify assets. Anyone with a share link should be treated as able to view that book.
 
+## Neural read-aloud
+
+The reader begins after the first four PDF pages are rendered; remaining pages are rasterized in the background. Its read-aloud feature uses the browser bundle for `@andresaya/edge-tts` from unpkg and Microsoft Edge's online neural voice service. It requires Microsoft Edge, internet access, and permission for these third-party requests. Direct browser synthesis is not supported by that package in Chrome, Firefox, or Safari. Supporting those browsers requires a secured server-side relay; Firebase Cloud Functions deployment requires the Blaze billing plan and can incur charges.
+
+The package is licensed GPL-3.0-only. Review its license and obligations before redistributing this application or its generated standalone books.
+
+Extracted text is read page-by-page; image-only scanned pages need OCR, which is not included. Neural audio is generated on demand and is not stored with the PDF.
+
 ## Page-turn sound
 
 Put the licensed page-turn audio asset named `flip.mp3` beside `index.html` in the hosted site. The reader loads this file for page turns and uses the browser-generated rustle only as a fallback if the file is unavailable. Browsers may require a user gesture before starting background music.
