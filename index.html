@@ -17,8 +17,6 @@
     </script>
     <!-- PageFlip JS for true 3D page bending & physical peel mechanics -->
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
-    <!-- Neural Microsoft Edge voices. Direct browser synthesis requires Microsoft Edge. -->
-    <script src="https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js"></script>
     <!-- Firebase: set firebaseConfig below to your Firebase web app configuration. -->
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
@@ -199,7 +197,7 @@
                     </div>
                     
                     <div id="peel-corner-hint" class="absolute bottom-6 right-6 pointer-events-none opacity-60 flex items-center space-x-1 text-[11px] font-medium text-neutral-500 bg-white/80 backdrop-blur px-2.5 py-1 rounded-full shadow-sm border border-neutral-200/80">
-                        <span>Drag corner or swipe to flip</span>
+                        <span>Swipe right for next, left for previous</span>
                         <i data-lucide="corner-down-left" class="w-3.5 h-3.5 peel-hint"></i>
                     </div>
                 </div>
@@ -255,7 +253,7 @@
                     <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
                         <option value="">Loading available voices…</option>
                     </select>
-                    <p class="text-[10px] text-neutral-400 mt-1">Neural Microsoft Edge voices. Direct playback requires the Edge browser.</p>
+                    <p class="text-[10px] text-neutral-400 mt-1">Uses voices available on this device.</p>
                 </div>
 
                 <div>
@@ -335,11 +333,7 @@
         let readerSpeechPage = 0;
         let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
         let readerSpeechToken = 0;
-        let readerSpeechAudio = null;
-        let readerSpeechUrls = [];
-        let readerSpeechPageAudioCache = new Map();
-        let edgeTts = null;
-        let edgeTtsVoices = [];
+        let readerSpeechVoices = [];
         let pdfLoadToken = 0;
         const flipAudio = new Audio('flip.mp3');
         flipAudio.preload = 'auto';
@@ -363,31 +357,35 @@
             return firebaseApp;
         }
 
-        async function populateReaderVoices() {
+        function populateReaderVoices() {
             const select = document.getElementById('reader-voice-select');
             if (!select) return;
-            if (!window.EdgeTTS) {
-                select.innerHTML = '<option value="">Neural voices unavailable</option>';
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                select.innerHTML = '<option value="">Speech unavailable in this browser</option>';
+                document.getElementById('reader-tts-btn')?.setAttribute('disabled', '');
                 return;
             }
-            try {
-                edgeTts ||= new window.EdgeTTS();
-                edgeTtsVoices = await edgeTts.getVoices();
-                select.innerHTML = '';
-                edgeTtsVoices.forEach(voice => {
-                const option = document.createElement('option');
-                option.value = voice.ShortName;
-                option.textContent = `${voice.FriendlyName || voice.Name} · ${voice.Locale}`;
-                select.appendChild(option);
-                });
-                const savedVoice = edgeTtsVoices.find(voice => voice.ShortName === readerSpeechVoiceName);
-                const defaultVoice = edgeTtsVoices.find(voice => voice.ShortName === 'en-US-AriaNeural') || edgeTtsVoices.find(voice => voice.Locale === 'en-US');
-                readerSpeechVoiceName = (savedVoice || defaultVoice || edgeTtsVoices[0])?.ShortName || '';
-                select.value = readerSpeechVoiceName;
-            } catch (error) {
-                console.error('Unable to load Edge neural voices', error);
-                select.innerHTML = '<option value="">Unable to load voices</option>';
+            readerSpeechVoices = window.speechSynthesis.getVoices();
+            const selectedVoice = readerSpeechVoiceName;
+            select.innerHTML = '';
+            if (readerSpeechVoices.length === 0) {
+                select.add(new Option('System default voice', ''));
+                select.value = '';
+                return;
             }
+            readerSpeechVoices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = `${voice.name} · ${voice.lang}`;
+                select.appendChild(option);
+            });
+            const defaultVoice = readerSpeechVoices.find(voice => voice.default) ||
+                readerSpeechVoices.find(voice => voice.lang.toLowerCase().startsWith('en')) ||
+                readerSpeechVoices[0];
+            readerSpeechVoiceName = readerSpeechVoices.some(voice => voice.name === selectedVoice)
+                ? selectedVoice
+                : defaultVoice.name;
+            select.value = readerSpeechVoiceName;
         }
 
         function setReaderVoice(voiceName) {
@@ -396,17 +394,14 @@
             else localStorage.removeItem('flipdf-reader-voice');
             if (readerSpeechActive) {
                 readerSpeechToken++;
-                if (readerSpeechAudio) readerSpeechAudio.pause();
-                readerSpeechPageAudioCache.clear();
-                readerSpeechUrls.forEach(URL.revokeObjectURL);
-                readerSpeechUrls = [];
+                window.speechSynthesis?.cancel();
                 speakReaderPage(readerSpeechPage, readerSpeechToken);
             }
         }
 
         function toggleReaderSpeech() {
-            if (!window.EdgeTTS) {
-                showToast('Neural reader unavailable. Check your connection and use Microsoft Edge.');
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                showToast('Read aloud is not supported by this browser.');
                 return;
             }
             if (readerSpeechActive) {
@@ -428,13 +423,7 @@
         function stopReaderSpeech() {
             readerSpeechActive = false;
             readerSpeechToken++;
-            if (readerSpeechAudio) {
-                readerSpeechAudio.pause();
-                readerSpeechAudio = null;
-            }
-            readerSpeechUrls.forEach(URL.revokeObjectURL);
-            readerSpeechUrls = [];
-            readerSpeechPageAudioCache.clear();
+            window.speechSynthesis?.cancel();
             updateReaderSpeechButton();
         }
 
@@ -460,23 +449,30 @@
             readerSpeechPage = pageIndex;
             if (pageIndex !== state.currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
             try {
-                const voiceName = readerSpeechVoiceName || 'en-US-AriaNeural';
-                const pageAudio = await getReaderPageAudio(pageIndex, voiceName, token);
-                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                const textChunks = splitSpeechText(state.pageText[pageIndex], 220);
+                for (const text of textChunks) {
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = readerSpeechVoices.find(voice => voice.name === readerSpeechVoiceName) || null;
+                    await new Promise((resolve, reject) => {
+                        utterance.onend = resolve;
+                        utterance.onerror = event => {
+                            if (!readerSpeechActive || token !== readerSpeechToken ||
+                                event.error === 'canceled' || event.error === 'interrupted') resolve();
+                            else reject(new Error(`Speech synthesis failed: ${event.error}`));
+                        };
+                        window.speechSynthesis.speak(utterance);
+                    });
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                }
                 let nextPage = pageIndex + 1;
                 while (nextPage < state.pageText.length && !state.pageText[nextPage]?.trim()) nextPage++;
-                if (nextPage < state.pageText.length) getReaderPageAudio(nextPage, voiceName, token).catch(() => {});
-                for (const audioUrl of pageAudio) {
-                    if (!readerSpeechActive || token !== readerSpeechToken) return;
-                    await playReaderAudio(audioUrl, token);
-                }
-                if (!readerSpeechActive || token !== readerSpeechToken) return;
                 if (nextPage < state.pageText.length) speakReaderPage(nextPage, token);
                 else stopReaderSpeech();
             } catch (error) {
-                console.error('Edge neural speech failed', error);
+                console.error('Device speech failed', error);
                 stopReaderSpeech();
-                showToast('Neural voice could not connect. Check Edge and your internet connection.');
+                showToast('The selected device voice could not read this page.');
             }
         }
 
@@ -494,53 +490,10 @@
             return chunks;
         }
 
-        function getReaderPageAudio(pageIndex, voiceName, token) {
-            const cacheKey = `${pageIndex}:${voiceName}`;
-            if (readerSpeechPageAudioCache.has(cacheKey)) return readerSpeechPageAudioCache.get(cacheKey);
-            const audioPromise = Promise.all(splitSpeechText(state.pageText[pageIndex]).map(text =>
-                edgeTts.generate(text, voiceName, { outputFormat: 'audio-24khz-96kbitrate-mono-mp3' })
-            )).then(results => {
-                if (!readerSpeechActive || token !== readerSpeechToken) return [];
-                return results.map(result => {
-                    const url = URL.createObjectURL(new Blob([result.audio], { type: 'audio/mpeg' }));
-                    readerSpeechUrls.push(url);
-                    return url;
-                });
-            });
-            readerSpeechPageAudioCache.set(cacheKey, audioPromise);
-            return audioPromise;
-        }
-
-        function playReaderAudio(url, token) {
-            return new Promise((resolve, reject) => {
-                const audio = new Audio(url);
-                readerSpeechAudio = audio;
-                audio.onended = resolve;
-                audio.onpause = () => {
-                    if (!readerSpeechActive || token !== readerSpeechToken) resolve();
-                };
-                audio.onerror = () => reject(new Error('Audio playback failed'));
-                audio.play().catch(reject);
-                if (!readerSpeechActive || token !== readerSpeechToken) {
-                    audio.pause();
-                    resolve();
-                }
-            });
-        }
-
-        function initializeNeuralReader() {
+        if (window.speechSynthesis) {
+            window.speechSynthesis.onvoiceschanged = populateReaderVoices;
             populateReaderVoices();
-            if (window.EdgeTTS) return;
-            const script = document.createElement('script');
-            script.src = 'https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js';
-            script.onload = populateReaderVoices;
-            script.onerror = () => {
-                const select = document.getElementById('reader-voice-select');
-                if (select) select.innerHTML = '<option value="">Unable to load neural voices</option>';
-            };
-            document.head.appendChild(script);
         }
-        initializeNeuralReader();
 
         function signInForSharing() {
             const app = getFirebase();
@@ -650,46 +603,11 @@
             return window.audioCtx;
         }
 
-        // Realistic Synthesized Paper Rustle Audio Engine
         function playFlipAudio() {
             if (!state.sound) return;
-            if (flipAudio.readyState >= 2) {
-                flipAudio.pause();
-                flipAudio.currentTime = 0;
-                flipAudio.volume = state.flipVolume;
-                flipAudio.play().catch(() => {});
-                return;
-            }
-            try {
-                const ctx = getAudioContext();
-                const bufferSize = ctx.sampleRate * 0.22; 
-                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-
-                const noise = ctx.createBufferSource();
-                noise.buffer = buffer;
-
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'bandpass';
-                filter.frequency.setValueAtTime(850, ctx.currentTime);
-                filter.frequency.exponentialRampToValueAtTime(280, ctx.currentTime + 0.18);
-                filter.Q.value = 2.0;
-
-                const gain = ctx.createGain();
-                const peakGain = 0.18 * state.flipVolume;
-                gain.gain.setValueAtTime(0.001, ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(peakGain, ctx.currentTime + 0.05);
-                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
-
-                noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(ctx.destination);
-
-                noise.start();
-            } catch (e) {}
+            if (flipAudio.readyState > 0) flipAudio.currentTime = 0;
+            flipAudio.volume = state.flipVolume;
+            flipAudio.play().catch(error => console.warn('Unable to play flip.mp3', error));
         }
 
         // Ambient Background Music Generator (Synthesizer & Audio Player)
@@ -849,8 +767,8 @@
                     return;
                 }
                 const isMobile = window.matchMedia('(max-width: 767px)').matches;
-                const maxPixelsPerPage = isMobile ? 1400000 : 2600000;
-                const renderScale = isMobile ? 1.2 : 1.5;
+                const maxPixelsPerPage = isMobile ? 900000 : 2600000;
+                const renderScale = isMobile ? 1 : 1.5;
                 const blankCanvas = document.createElement('canvas');
                 blankCanvas.width = 2;
                 blankCanvas.height = 2;
@@ -888,7 +806,7 @@
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-                    const pageImage = canvas.toDataURL('image/jpeg', isMobile ? 0.82 : 0.88);
+                    const pageImage = canvas.toDataURL('image/jpeg', isMobile ? 0.78 : 0.88);
                     state.pages[i - 1] = pageImage;
                     canvas.width = 0;
                     canvas.height = 0;
@@ -1052,15 +970,15 @@
                 minHeight: 350,
                 maxHeight: 1200,
                 drawShadow: true,
-                maxShadowOpacity: 0.38,
-                flippingTime: 750,
-                swipeDistance: isMobile ? 32 : 18,
+                maxShadowOpacity: isMobile ? 0.22 : 0.32,
+                flippingTime: isMobile ? 420 : 550,
+                swipeDistance: isMobile ? 24 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,
                 startPage: 0,
                 autoSize: true,
                 clickEventForward: true,
-                useMouseEvents: true,
+                useMouseEvents: !isMobile,
                 showCover: true,
                 mobileScrollSupport: false
             });
@@ -1086,11 +1004,36 @@
 
             pageFlipInstance.loadFromHTML(pageElements);
 
+            let swipeStart = null;
+            container.ontouchstart = event => {
+                if (event.touches.length !== 1) {
+                    swipeStart = null;
+                    return;
+                }
+                swipeStart = {
+                    x: event.touches[0].clientX,
+                    y: event.touches[0].clientY
+                };
+            };
+            container.ontouchend = event => {
+                if (!isMobile || !swipeStart) return;
+                const touch = event.changedTouches[0];
+                const deltaX = touch.clientX - swipeStart.x;
+                const deltaY = touch.clientY - swipeStart.y;
+                swipeStart = null;
+                if (Math.abs(deltaX) < 32 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+                event.preventDefault();
+                if (deltaX > 0) pageFlipInstance.flipNext();
+                else pageFlipInstance.flipPrev();
+            };
+            container.ontouchcancel = () => { swipeStart = null; };
+
             pageFlipInstance.on('flip', (e) => {
                 state.currentPage = e.data;
                 if (readerSpeechActive && e.data !== readerSpeechPage) {
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
+                    window.speechSynthesis?.cancel();
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
                 updateNavigationUI();
@@ -1317,6 +1260,22 @@
                 showToast('Build styles.css before exporting the standalone book');
                 return;
             }
+            let flipAudioData;
+            try {
+                const response = await fetch(new URL('flip.mp3', document.baseURI));
+                if (!response.ok) throw new Error('Could not load flip.mp3.');
+                const audioBlob = await response.blob();
+                flipAudioData = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error || new Error('Could not read flip.mp3.'));
+                    reader.readAsDataURL(audioBlob);
+                });
+            } catch (error) {
+                console.error(error);
+                showToast('Could not load flip.mp3 for the standalone book');
+                return;
+            }
             const standaloneContent = `<!DOCTYPE html>
 <html lang="en" class="h-full select-none">
 <head>
@@ -1326,7 +1285,6 @@
     <style>${tailwindCss}</style>
     <script src="https://unpkg.com/lucide@latest"><\/script>
     <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
-    <script src="https://unpkg.com/@andresaya/edge-tts@1.9.1/dist/browser/edge-tts.umd.min.js"><\/script>
     <style>
         .stpageflip-page, .page-flip-container canvas {
             background-color: #ffffff !important;
@@ -1450,8 +1408,9 @@
                 <div class="pt-2 border-t border-neutral-100 space-y-2">
                     <label class="block text-neutral-600 font-medium" for="reader-voice-select">Reader Voice</label>
                     <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-white/80 border border-neutral-200 rounded-lg p-2 text-[11px] text-neutral-800 focus:outline-none focus:border-neutral-400">
-                        <option value="">Loading available voices…</option>
+                        <option value="">Loading device voices…</option>
                     </select>
+                    <p class="text-[10px] text-neutral-400">Uses voices available on this device.</p>
                     <div class="flex items-center justify-between">
                         <span class="text-neutral-600 font-medium">Page Flip Sound</span>
                         <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 ${state.sound ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
@@ -1506,10 +1465,8 @@
         let readerSpeechPage = 0;
         let readerSpeechToken = 0;
         let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
-        let edgeTts = null;
-        let readerSpeechAudio = null;
-        let readerSpeechUrls = [];
-        const flipAudio = new Audio('flip.mp3');
+        let readerSpeechVoices = [];
+        const flipAudio = new Audio(${JSON.stringify(flipAudioData)});
         flipAudio.preload = 'auto';
 
         let audioCtx = null;
@@ -1519,30 +1476,34 @@
 
         let hideTimer = null;
 
-        async function populateReaderVoices() {
+        function populateReaderVoices() {
             const select = document.getElementById('reader-voice-select');
             if (!select) return;
-            if (!window.EdgeTTS) {
-                select.innerHTML = '<option value="">Neural voices unavailable</option>';
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                select.innerHTML = '<option value="">Speech unavailable in this browser</option>';
                 return;
             }
-            try {
-                edgeTts = edgeTts || new window.EdgeTTS();
-                const voices = await edgeTts.getVoices();
-                select.innerHTML = '';
-                voices.forEach(voice => {
-                const option = document.createElement('option');
-                option.value = voice.ShortName;
-                option.textContent = (voice.FriendlyName || voice.Name) + ' · ' + voice.Locale;
-                select.appendChild(option);
-                });
-                const saved = voices.find(voice => voice.ShortName === readerSpeechVoiceName);
-                const fallback = voices.find(voice => voice.ShortName === 'en-US-AriaNeural') || voices.find(voice => voice.Locale === 'en-US') || voices[0];
-                readerSpeechVoiceName = (saved || fallback || {}).ShortName || '';
-                select.value = readerSpeechVoiceName;
-            } catch (error) {
-                select.innerHTML = '<option value="">Unable to load voices</option>';
+            readerSpeechVoices = window.speechSynthesis.getVoices();
+            const selectedVoice = readerSpeechVoiceName;
+            select.innerHTML = '';
+            if (readerSpeechVoices.length === 0) {
+                select.add(new Option('System default voice', ''));
+                select.value = '';
+                return;
             }
+            readerSpeechVoices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = voice.name + ' · ' + voice.lang;
+                select.appendChild(option);
+            });
+            const fallback = readerSpeechVoices.find(voice => voice.default) ||
+                readerSpeechVoices.find(voice => voice.lang.toLowerCase().startsWith('en')) ||
+                readerSpeechVoices[0];
+            readerSpeechVoiceName = readerSpeechVoices.some(voice => voice.name === selectedVoice)
+                ? selectedVoice
+                : fallback.name;
+            select.value = readerSpeechVoiceName;
         }
 
         function setReaderVoice(voiceName) {
@@ -1551,15 +1512,16 @@
             else localStorage.removeItem('flipdf-reader-voice');
             if (readerSpeechActive) {
                 readerSpeechToken++;
-                if (readerSpeechAudio) readerSpeechAudio.pause();
-                readerSpeechUrls.forEach(URL.revokeObjectURL);
-                readerSpeechUrls = [];
+                window.speechSynthesis?.cancel();
                 speakReaderPage(readerSpeechPage, readerSpeechToken);
             }
         }
 
         function toggleReaderSpeech() {
-            if (!window.EdgeTTS) { alert('Neural reader requires Microsoft Edge and an internet connection.'); return; }
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                alert('Read aloud is not supported by this browser.');
+                return;
+            }
             if (readerSpeechActive) {
                 stopReaderSpeech();
                 return;
@@ -1578,11 +1540,7 @@
         function stopReaderSpeech() {
             readerSpeechActive = false;
             readerSpeechToken++;
-            if (readerSpeechAudio) { readerSpeechAudio.pause(); readerSpeechAudio = null; }
-            readerSpeechUrls.forEach(URL.revokeObjectURL);
-            readerSpeechUrls = [];
-            readerSpeechUrls.forEach(URL.revokeObjectURL);
-            readerSpeechUrls = [];
+            window.speechSynthesis?.cancel();
             updateReaderSpeechButton();
         }
 
@@ -1604,29 +1562,29 @@
             }
             readerSpeechPage = pageIndex;
             if (pageIndex !== currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
-            const words = pageText[pageIndex].replace(/\\s+/g, ' ').trim().split(' ');
-            const chunks = [];
-            let chunk = '';
-            words.forEach(word => {
-                if (chunk && (chunk + ' ' + word).length > 1800) { chunks.push(chunk); chunk = word; }
-                else chunk = chunk ? chunk + ' ' + word : word;
-            });
-            if (chunk) chunks.push(chunk);
             try {
+                const words = pageText[pageIndex].replace(/\\s+/g, ' ').trim().split(' ');
+                const chunks = [];
+                let chunk = '';
+                words.forEach(word => {
+                    if (chunk && (chunk + ' ' + word).length > 220) { chunks.push(chunk); chunk = word; }
+                    else chunk = chunk ? chunk + ' ' + word : word;
+                });
+                if (chunk) chunks.push(chunk);
                 for (const text of chunks) {
                     if (!readerSpeechActive || token !== readerSpeechToken) return;
-                    const result = await edgeTts.generate(text, readerSpeechVoiceName || 'en-US-AriaNeural', { outputFormat: 'audio-24khz-96kbitrate-mono-mp3' });
-                    if (!readerSpeechActive || token !== readerSpeechToken) return;
-                    const url = URL.createObjectURL(new Blob([result.audio], { type: 'audio/mpeg' }));
-                    readerSpeechUrls.push(url);
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = readerSpeechVoices.find(voice => voice.name === readerSpeechVoiceName) || null;
                     await new Promise((resolve, reject) => {
-                        const audio = new Audio(url);
-                        readerSpeechAudio = audio;
-                        audio.onended = resolve;
-                        audio.onpause = () => { if (!readerSpeechActive || token !== readerSpeechToken) resolve(); };
-                        audio.onerror = () => reject(new Error('Audio playback failed'));
-                        audio.play().catch(reject);
+                        utterance.onend = resolve;
+                        utterance.onerror = event => {
+                            if (!readerSpeechActive || token !== readerSpeechToken ||
+                                event.error === 'canceled' || event.error === 'interrupted') resolve();
+                            else reject(new Error('Speech synthesis failed: ' + event.error));
+                        };
+                        window.speechSynthesis.speak(utterance);
                     });
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
                 }
                 if (!readerSpeechActive || token !== readerSpeechToken) return;
                 let nextPage = pageIndex + 1;
@@ -1635,10 +1593,11 @@
                 else stopReaderSpeech();
             } catch (error) {
                 stopReaderSpeech();
-                alert('Neural voice could not connect. Check your Edge browser and internet connection.');
+                alert('The selected device voice could not read this page.');
             }
         }
 
+        if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = populateReaderVoices;
         populateReaderVoices();
 
         function getAudioContext() {
@@ -1652,46 +1611,11 @@
             return audioCtx;
         }
 
-        // Synthesized Page Flip Sound Effect Engine
         function playFlipAudio() {
             if (!soundEnabled) return;
-            if (flipAudio.readyState >= 2) {
-                flipAudio.pause();
-                flipAudio.currentTime = 0;
-                flipAudio.volume = flipVolume;
-                flipAudio.play().catch(() => {});
-                return;
-            }
-            try {
-                const ctx = getAudioContext();
-                const bufferSize = ctx.sampleRate * 0.22; 
-                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-
-                const noise = ctx.createBufferSource();
-                noise.buffer = buffer;
-
-                const filter = ctx.createBiquadFilter();
-                filter.type = 'bandpass';
-                filter.frequency.setValueAtTime(850, ctx.currentTime);
-                filter.frequency.exponentialRampToValueAtTime(280, ctx.currentTime + 0.18);
-                filter.Q.value = 2.0;
-
-                const gain = ctx.createGain();
-                const peakGain = 0.18 * flipVolume;
-                gain.gain.setValueAtTime(0.001, ctx.currentTime);
-                gain.gain.linearRampToValueAtTime(peakGain, ctx.currentTime + 0.05);
-                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
-
-                noise.connect(filter);
-                filter.connect(gain);
-                gain.connect(ctx.destination);
-
-                noise.start();
-            } catch (e) {}
+            if (flipAudio.readyState > 0) flipAudio.currentTime = 0;
+            flipAudio.volume = flipVolume;
+            flipAudio.play().catch(error => console.warn('Unable to play flip.mp3', error));
         }
 
         // Embedded Synthesizer Background Music Engine
@@ -1863,14 +1787,15 @@
                 height: pageH,
                 size: "fixed",
                 drawShadow: true,
-                maxShadowOpacity: 0.38,
-                flippingTime: 750,
-                swipeDistance: isMobile ? 32 : 18,
+                maxShadowOpacity: isMobile ? 0.22 : 0.32,
+                flippingTime: isMobile ? 420 : 550,
+                swipeDistance: isMobile ? 24 : 18,
                 usePortrait: isMobile,
                 startZIndex: 0,
                 showCover: true,
-                useMouseEvents: true,
-                clickEventForward: true
+                useMouseEvents: !isMobile,
+                clickEventForward: true,
+                mobileScrollSupport: false
             });
 
             const els = pages.map(src => {
@@ -1887,11 +1812,37 @@
 
             pageFlipInstance.loadFromHTML(els);
 
+            let swipeStart = null;
+            const flipbook = document.getElementById('flipbook-root');
+            flipbook.ontouchstart = event => {
+                if (event.touches.length !== 1) {
+                    swipeStart = null;
+                    return;
+                }
+                swipeStart = {
+                    x: event.touches[0].clientX,
+                    y: event.touches[0].clientY
+                };
+            };
+            flipbook.ontouchend = event => {
+                if (!isMobile || !swipeStart) return;
+                const touch = event.changedTouches[0];
+                const deltaX = touch.clientX - swipeStart.x;
+                const deltaY = touch.clientY - swipeStart.y;
+                swipeStart = null;
+                if (Math.abs(deltaX) < 32 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+                event.preventDefault();
+                if (deltaX > 0) pageFlipInstance.flipNext();
+                else pageFlipInstance.flipPrev();
+            };
+            flipbook.ontouchcancel = () => { swipeStart = null; };
+
             pageFlipInstance.on('flip', (e) => {
                 currentPage = e.data;
                 if (readerSpeechActive && e.data !== readerSpeechPage) {
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
+                    window.speechSynthesis?.cancel();
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
                 document.getElementById('page-counter').innerText = 'Page ' + (currentPage + 1) + ' of ' + pages.length;
