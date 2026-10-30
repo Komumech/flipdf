@@ -1004,30 +1004,6 @@
 
             pageFlipInstance.loadFromHTML(pageElements);
 
-            let swipeStart = null;
-            container.ontouchstart = event => {
-                if (event.touches.length !== 1) {
-                    swipeStart = null;
-                    return;
-                }
-                swipeStart = {
-                    x: event.touches[0].clientX,
-                    y: event.touches[0].clientY
-                };
-            };
-            container.ontouchend = event => {
-                if (!isMobile || !swipeStart) return;
-                const touch = event.changedTouches[0];
-                const deltaX = touch.clientX - swipeStart.x;
-                const deltaY = touch.clientY - swipeStart.y;
-                swipeStart = null;
-                if (Math.abs(deltaX) < 32 || Math.abs(deltaX) < Math.abs(deltaY)) return;
-                event.preventDefault();
-                if (deltaX > 0) pageFlipInstance.flipNext();
-                else pageFlipInstance.flipPrev();
-            };
-            container.ontouchcancel = () => { swipeStart = null; };
-
             pageFlipInstance.on('flip', (e) => {
                 state.currentPage = e.data;
                 if (readerSpeechActive && e.data !== readerSpeechPage) {
@@ -1811,31 +1787,6 @@
             });
 
             pageFlipInstance.loadFromHTML(els);
-
-            let swipeStart = null;
-            const flipbook = document.getElementById('flipbook-root');
-            flipbook.ontouchstart = event => {
-                if (event.touches.length !== 1) {
-                    swipeStart = null;
-                    return;
-                }
-                swipeStart = {
-                    x: event.touches[0].clientX,
-                    y: event.touches[0].clientY
-                };
-            };
-            flipbook.ontouchend = event => {
-                if (!isMobile || !swipeStart) return;
-                const touch = event.changedTouches[0];
-                const deltaX = touch.clientX - swipeStart.x;
-                const deltaY = touch.clientY - swipeStart.y;
-                swipeStart = null;
-                if (Math.abs(deltaX) < 32 || Math.abs(deltaX) < Math.abs(deltaY)) return;
-                event.preventDefault();
-                if (deltaX > 0) pageFlipInstance.flipNext();
-                else pageFlipInstance.flipPrev();
-            };
-            flipbook.ontouchcancel = () => { swipeStart = null; };
 
             pageFlipInstance.on('flip', (e) => {
                 currentPage = e.data;
