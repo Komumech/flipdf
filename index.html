@@ -183,6 +183,10 @@
                         <button onclick="toggleReaderSpeech()" id="reader-tts-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Read this book aloud" aria-label="Read this book aloud">
                             <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
                         </button>
+                        <button onclick="document.getElementById('page-recordings-input').click()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Choose recordings in page order and export the book" aria-label="Choose recordings in page order and export the book">
+                            <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <input type="file" id="page-recordings-input" accept="audio/*" multiple class="hidden" onchange="handlePageRecordingsUpload(event)">
                         <div class="h-3 w-px bg-neutral-200 mx-1"></div>
                         <button onclick="adjustZoom(0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
                         <button onclick="adjustZoom(-0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
@@ -253,7 +257,7 @@
                     <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
                         <option value="">Loading available voices…</option>
                     </select>
-                    <p class="text-[10px] text-neutral-400 mt-1">Uses voices available on this device.</p>
+                    <p class="text-[10px] text-neutral-400 mt-1">Uses your page recordings when added; otherwise uses voices available on this device.</p>
                 </div>
 
                 <div>
@@ -311,6 +315,7 @@
         let state = {
             pages: [],
             pageText: [],
+            pageRecordings: [],
             currentPage: 0,
             zoom: 1,
             sound: true,
@@ -334,6 +339,7 @@
         let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
         let readerSpeechToken = 0;
         let readerSpeechVoices = [];
+        const readerAudio = new Audio();
         let pdfLoadToken = 0;
         const flipAudio = new Audio('flip.mp3');
         flipAudio.preload = 'auto';
@@ -399,13 +405,59 @@
             }
         }
 
-        function toggleReaderSpeech() {
-            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-                showToast('Read aloud is not supported by this browser.');
+        async function handlePageRecordingsUpload(event) {
+            const input = event.target;
+            const files = Array.from(input.files || []);
+            input.value = '';
+            if (!files.length) return;
+            if (files.length > state.pages.length) {
+                showToast(`Choose no more than ${state.pages.length} recordings, in page order.`);
                 return;
             }
+
+            try {
+                const recordings = await Promise.all(files.map(file => new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}.`));
+                    reader.readAsDataURL(file);
+                })));
+                state.pageRecordings = Array(state.pages.length).fill(null);
+                recordings.forEach((recording, index) => {
+                    state.pageRecordings[index] = recording;
+                });
+                if (readerSpeechActive) stopReaderSpeech();
+                updateReaderSpeechButton();
+                await exportStandaloneHTML();
+            } catch (error) {
+                console.error('Could not load page recordings.', error);
+                showToast(error.message || 'Could not load the page recordings.');
+            }
+        }
+
+        function hasPageRecordings() {
+            return state.pageRecordings.some(Boolean);
+        }
+
+        function toggleReaderSpeech() {
             if (readerSpeechActive) {
                 stopReaderSpeech();
+                return;
+            }
+            if (hasPageRecordings()) {
+                if (!state.pageRecordings[state.currentPage]) {
+                    showToast('There is no recording for this page.');
+                    return;
+                }
+                readerSpeechActive = true;
+                readerSpeechPage = state.currentPage;
+                readerSpeechToken++;
+                updateReaderSpeechButton();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+                return;
+            }
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                showToast('Read aloud is not supported by this browser.');
                 return;
             }
             const currentText = state.pageText[state.currentPage] || '';
@@ -424,13 +476,16 @@
             readerSpeechActive = false;
             readerSpeechToken++;
             window.speechSynthesis?.cancel();
+            readerAudio.pause();
+            readerAudio.currentTime = 0;
             updateReaderSpeechButton();
         }
 
         function updateReaderSpeechButton() {
             const button = document.getElementById('reader-tts-btn');
             if (!button) return;
-            button.title = readerSpeechActive ? 'Stop reading aloud' : 'Read this book aloud';
+            const actionLabel = hasPageRecordings() ? 'Play page recording' : 'Read this book aloud';
+            button.title = readerSpeechActive ? 'Stop reading aloud' : actionLabel;
             button.setAttribute('aria-label', button.title);
             button.classList.toggle('text-neutral-900', readerSpeechActive);
             button.classList.toggle('text-neutral-600', !readerSpeechActive);
@@ -441,6 +496,10 @@
 
         async function speakReaderPage(pageIndex, token) {
             if (!readerSpeechActive || token !== readerSpeechToken) return;
+            if (hasPageRecordings()) {
+                playRecordedPage(pageIndex, token);
+                return;
+            }
             if (pageIndex >= state.pages.length || !state.pageText[pageIndex]?.trim()) {
                 stopReaderSpeech();
                 showToast('Reached the end of the available book text');
@@ -474,6 +533,42 @@
                 stopReaderSpeech();
                 showToast('The selected device voice could not read this page.');
             }
+        }
+
+        function playRecordedPage(pageIndex, token) {
+            const recording = state.pageRecordings[pageIndex];
+            if (!recording) {
+                stopReaderSpeech();
+                showToast('There is no recording for this page.');
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== state.currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            readerAudio.onended = () => {
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < state.pageRecordings.length && !state.pageRecordings[nextPage]) nextPage++;
+                if (nextPage < state.pageRecordings.length) {
+                    if (pageFlipInstance) pageFlipInstance.flip(nextPage);
+                    else speakReaderPage(nextPage, token);
+                } else {
+                    stopReaderSpeech();
+                }
+            };
+            readerAudio.onerror = () => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    stopReaderSpeech();
+                    showToast('The page recording could not be played.');
+                }
+            };
+            readerAudio.src = recording;
+            readerAudio.play().catch(error => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    console.error('Could not play page recording.', error);
+                    stopReaderSpeech();
+                    showToast('Could not play the page recording. Tap play to try again.');
+                }
+            });
         }
 
         function splitSpeechText(value, maxLength = 1800) {
@@ -539,6 +634,7 @@
             if (state.hasCompletionPage) return;
             state.pages.push(makeCompletionPage());
             state.pageText.push('');
+            state.pageRecordings.push(null);
             state.hasCompletionPage = true;
         }
 
@@ -550,6 +646,7 @@
                 const book = snapshot.data();
                 state.pages = book.pageUrls || [];
                 if (!state.pages.length) throw new Error('This shared book has no pages.');
+                state.pageRecordings = Array(state.pages.length).fill(null);
                 state.pageText = [];
                 if (book.textUrl) {
                     try {
@@ -758,6 +855,7 @@
             stopReaderSpeech();
             state.fileName = file.name;
             state.hasCompletionPage = false;
+            state.pageRecordings = [];
             showToast('Opening PDF…');
             try {
                 const buffer = await file.arrayBuffer();
@@ -780,6 +878,7 @@
                 blankCanvas.height = 0;
                 state.pages = Array(doc.numPages).fill(blankPage);
                 state.pageText = Array(doc.numPages).fill('');
+                state.pageRecordings = Array(doc.numPages).fill(null);
                 const firstBatchSize = Math.min(4, doc.numPages);
                 let readerLaunched = false;
 
@@ -840,6 +939,7 @@
         function loadSampleBook(type) {
             showToast('Building sample book...');
             state.hasCompletionPage = false;
+            state.pageRecordings = [];
             let pages = [];
             for (let i = 1; i <= 8; i++) {
                 const canvas = document.createElement('canvas');
@@ -881,6 +981,7 @@
             }
 
             state.pages = pages;
+            state.pageRecordings = Array(pages.length).fill(null);
             state.pageText = Array.from({ length: pages.length }, (_, idx) => idx === 0 ? '' : `Sample page ${idx + 1}. This sample page demonstrates the FlipDF reading experience. Upload a text-based PDF to use read aloud.`);
             state.fileName = type === 'editorial' ? 'Editorial_Journal.pdf' : 'Minimal_Catalog.pdf';
             launchReader();
@@ -1010,6 +1111,8 @@
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
                     window.speechSynthesis?.cancel();
+                    readerAudio.pause();
+                    readerAudio.currentTime = 0;
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
                 updateNavigationUI();
@@ -1222,6 +1325,7 @@
             showToast('Preparing standalone book HTML...');
             const pagesJSON = JSON.stringify(state.pages);
             const pageTextJSON = JSON.stringify(state.pageText);
+            const pageRecordingsJSON = JSON.stringify(state.pageRecordings);
             let tailwindCss;
             try {
                 const stylesheet = Array.from(document.styleSheets).find(sheet =>
@@ -1386,7 +1490,7 @@
                     <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-white/80 border border-neutral-200 rounded-lg p-2 text-[11px] text-neutral-800 focus:outline-none focus:border-neutral-400">
                         <option value="">Loading device voices…</option>
                     </select>
-                    <p class="text-[10px] text-neutral-400">Uses voices available on this device.</p>
+                    <p class="text-[10px] text-neutral-400">Uses your embedded page recordings when available.</p>
                     <div class="flex items-center justify-between">
                         <span class="text-neutral-600 font-medium">Page Flip Sound</span>
                         <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 ${state.sound ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
@@ -1428,6 +1532,7 @@
     <script>
         const pages = ${pagesJSON};
         const pageText = ${pageTextJSON};
+        const pageRecordings = ${pageRecordingsJSON};
         let pageFlipInstance = null;
         let zoomVal = 1;
         let soundEnabled = ${state.sound};
@@ -1442,6 +1547,7 @@
         let readerSpeechToken = 0;
         let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
         let readerSpeechVoices = [];
+        const readerAudio = new Audio();
         const flipAudio = new Audio(${JSON.stringify(flipAudioData)});
         flipAudio.preload = 'auto';
 
@@ -1493,13 +1599,29 @@
             }
         }
 
+        function hasPageRecordings() {
+            return pageRecordings.some(Boolean);
+        }
+
         function toggleReaderSpeech() {
-            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-                alert('Read aloud is not supported by this browser.');
-                return;
-            }
             if (readerSpeechActive) {
                 stopReaderSpeech();
+                return;
+            }
+            if (hasPageRecordings()) {
+                if (!pageRecordings[currentPage]) {
+                    alert('There is no recording for this page.');
+                    return;
+                }
+                readerSpeechActive = true;
+                readerSpeechPage = currentPage;
+                readerSpeechToken++;
+                updateReaderSpeechButton();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+                return;
+            }
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                alert('Read aloud is not supported by this browser.');
                 return;
             }
             if (!pageText[currentPage]?.trim()) {
@@ -1517,13 +1639,16 @@
             readerSpeechActive = false;
             readerSpeechToken++;
             window.speechSynthesis?.cancel();
+            readerAudio.pause();
+            readerAudio.currentTime = 0;
             updateReaderSpeechButton();
         }
 
         function updateReaderSpeechButton() {
             const button = document.getElementById('reader-tts-btn');
             if (!button) return;
-            button.title = readerSpeechActive ? 'Stop reading aloud' : 'Read this book aloud';
+            const actionLabel = hasPageRecordings() ? 'Play page recording' : 'Read this book aloud';
+            button.title = readerSpeechActive ? 'Stop reading aloud' : actionLabel;
             button.setAttribute('aria-label', button.title);
             const icon = button.querySelector('i');
             if (icon) icon.setAttribute('data-lucide', readerSpeechActive ? 'pause' : 'headphones');
@@ -1532,6 +1657,10 @@
 
         async function speakReaderPage(pageIndex, token) {
             if (!readerSpeechActive || token !== readerSpeechToken) return;
+            if (hasPageRecordings()) {
+                playRecordedPage(pageIndex, token);
+                return;
+            }
             if (pageIndex >= pageText.length || !pageText[pageIndex]?.trim()) {
                 stopReaderSpeech();
                 return;
@@ -1571,6 +1700,42 @@
                 stopReaderSpeech();
                 alert('The selected device voice could not read this page.');
             }
+        }
+
+        function playRecordedPage(pageIndex, token) {
+            const recording = pageRecordings[pageIndex];
+            if (!recording) {
+                stopReaderSpeech();
+                alert('There is no recording for this page.');
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            readerAudio.onended = () => {
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < pageRecordings.length && !pageRecordings[nextPage]) nextPage++;
+                if (nextPage < pageRecordings.length) {
+                    if (pageFlipInstance) pageFlipInstance.flip(nextPage);
+                    else speakReaderPage(nextPage, token);
+                } else {
+                    stopReaderSpeech();
+                }
+            };
+            readerAudio.onerror = () => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    stopReaderSpeech();
+                    alert('The page recording could not be played.');
+                }
+            };
+            readerAudio.src = recording;
+            readerAudio.play().catch(error => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    console.error('Could not play page recording.', error);
+                    stopReaderSpeech();
+                    alert('Could not play the page recording. Tap play to try again.');
+                }
+            });
         }
 
         if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = populateReaderVoices;
@@ -1794,6 +1959,8 @@
                     readerSpeechPage = e.data;
                     readerSpeechToken++;
                     window.speechSynthesis?.cancel();
+                    readerAudio.pause();
+                    readerAudio.currentTime = 0;
                     speakReaderPage(readerSpeechPage, readerSpeechToken);
                 }
                 document.getElementById('page-counter').innerText = 'Page ' + (currentPage + 1) + ' of ' + pages.length;
