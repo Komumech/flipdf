@@ -1,0 +1,2023 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlipDF - PDF to Flippable Book</title>
+    <!-- Production Tailwind CSS (generate with `npm run build:css`). -->
+    <link rel="stylesheet" href="styles.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
+    <!-- PageFlip JS for true 3D page bending & physical peel mechanics -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+    <!-- Firebase: set firebaseConfig below to your Firebase web app configuration. -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-storage-compat.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+
+        .page-flip-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: auto;
+            position: relative;
+            touch-action: none;
+        }
+
+        /* Keep page surfaces opaque without overriding the flip engine's 3D rendering. */
+        .stpageflip-page, 
+        .stpageflip-container,
+        .stpageflip-wrapper,
+        .page-flip-container canvas {
+            background-color: #ffffff !important;
+        }
+
+        .stpageflip-page {
+            box-shadow: 0 8px 28px rgba(47, 36, 29, 0.18);
+            transform-style: preserve-3d;
+            isolation: isolate;
+            background-image: linear-gradient(90deg, rgba(112, 83, 56, 0.08), transparent 8%, transparent 92%, rgba(112, 83, 56, 0.07)) !important;
+        }
+
+        /* Spine gradient & soft lighting shadows on individual pages */
+        .stpageflip-page::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to right, rgba(63,45,31,0.18) 0%, rgba(63,45,31,0.04) 3%, transparent 13%, transparent 86%, rgba(63,45,31,0.04) 97%, rgba(63,45,31,0.14) 100%);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Subtle page peeling corner hint animation */
+        @keyframes cornerPeelHint {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(-8px, -8px); }
+        }
+        
+        .peel-hint {
+            animation: cornerPeelHint 2.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-[#fcfcfc] text-[#111827] h-full flex flex-col antialiased selection:bg-neutral-900 selection:text-white overflow-hidden">
+
+    <!-- Top Navigation Header -->
+    <header class="h-14 border-b border-neutral-200/80 bg-white/80 backdrop-blur px-6 flex items-center justify-between shrink-0 z-30">
+        <div class="flex items-center space-x-3">
+            <div class="w-7 h-7 rounded bg-neutral-900 text-white flex items-center justify-center font-bold text-xs tracking-wider">
+                F
+            </div>
+            <span class="font-medium text-xs tracking-tight text-neutral-800">FlipDF</span>
+        </div>
+        
+        <div id="nav-actions" class="flex items-center space-x-3 hidden">
+            <button onclick="toggleThumbnails()" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors flex items-center space-x-1.5">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                <span>Pages</span>
+            </button>
+            <button onclick="switchView('workspace')" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors">
+                Workspace
+            </button>
+            <button onclick="toggleFullscreen()" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors">
+                <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+            </button>
+            <div class="h-3.5 w-px bg-neutral-200"></div>
+            <button onclick="openShareModal()" class="inline-flex items-center space-x-1.5 text-xs font-medium border border-neutral-300 hover:border-neutral-400 text-neutral-800 px-3 py-1.5 rounded transition-colors">
+                <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
+                <span>Share Book</span>
+            </button>
+            <button onclick="exportStandaloneHTML()" class="inline-flex items-center space-x-1.5 text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded transition-colors">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Export Standalone Book</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-hidden relative flex flex-col">
+
+        <!-- VIEW 1: WORKSPACE / UPLOAD -->
+        <section id="view-workspace" class="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full flex flex-col justify-center">
+            <div class="text-center max-w-lg mx-auto mb-10">
+                <h1 class="text-xl font-semibold text-neutral-900 mb-2">Convert PDF to 3D Flippable Book</h1>
+                <p class="text-xs text-neutral-500">Upload a PDF to build an interactive digital publication with realistic page bending, soft dynamic shadows, corner dragging, and paper turn audio.</p>
+            </div>
+
+            <!-- Drag & Drop Zone -->
+            <div id="dropzone" class="border border-dashed border-neutral-300 rounded-2xl p-12 text-center hover:border-neutral-500 transition-all bg-white cursor-pointer group max-w-lg mx-auto w-full mb-8">
+                <input type="file" id="pdf-file-input" accept="application/pdf" class="hidden">
+                <div class="w-10 h-10 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center mx-auto mb-3 group-hover:scale-105 transition-transform">
+                    <i data-lucide="file-up" class="w-4 h-4"></i>
+                </div>
+                <p class="text-xs font-medium text-neutral-800 mb-1">Click to upload or drag & drop PDF</p>
+                <p class="text-[11px] text-neutral-400">Up to 100MB</p>
+            </div>
+
+            <!-- Samples -->
+            <div class="max-w-lg mx-auto w-full">
+                <div class="text-[11px] font-medium text-neutral-400 uppercase tracking-wider mb-3">Or try a sample book</div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="loadSampleBook('editorial')" class="p-3.5 rounded-xl border border-neutral-200 bg-white hover:border-neutral-400 text-left transition-all flex items-center space-x-3">
+                        <div class="w-8 h-10 rounded bg-neutral-900 text-white flex items-center justify-center font-bold text-[10px]">ED</div>
+                        <div>
+                            <div class="text-xs font-medium text-neutral-900">Editorial Journal</div>
+                            <div class="text-[10px] text-neutral-400">8 Pages • Curved Bending</div>
+                        </div>
+                    </button>
+                    <button onclick="loadSampleBook('catalog')" class="p-3.5 rounded-xl border border-neutral-200 bg-white hover:border-neutral-400 text-left transition-all flex items-center space-x-3">
+                        <div class="w-8 h-10 rounded bg-neutral-700 text-white flex items-center justify-center font-bold text-[10px]">CAT</div>
+                        <div>
+                            <div class="text-xs font-medium text-neutral-900">Minimal Catalog</div>
+                            <div class="text-[10px] text-neutral-400">8 Pages • Soft Shadows</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 2: READER & INTERACTIVE STUDIO -->
+        <section id="view-reader" class="flex-1 flex overflow-hidden hidden relative">
+            
+            <!-- Side Thumbnails Drawer -->
+            <aside id="thumb-drawer" class="w-56 border-r border-neutral-200 bg-white flex flex-col shrink-0 transition-all duration-300 -ml-56 z-20">
+                <div class="p-3 border-b border-neutral-100 flex items-center justify-between">
+                    <span class="text-[11px] font-medium uppercase tracking-wider text-neutral-400">Table of Contents</span>
+                    <button onclick="toggleThumbnails()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                </div>
+                <div id="thumb-container" class="flex-1 overflow-y-auto p-3 space-y-3">
+                    <!-- Dynamic Thumbnails Rendered Here -->
+                </div>
+            </aside>
+
+            <!-- Book Stage & Viewport -->
+            <div class="flex-1 bg-[#f5f5f7] flex flex-col relative overflow-hidden">
+                <!-- Top Toolbar -->
+                <div class="h-10 border-b border-neutral-200/60 bg-white/60 backdrop-blur px-6 flex items-center justify-between shrink-0 z-10">
+                    <div class="text-xs text-neutral-500 font-medium" id="page-counter">Page 1 of 1</div>
+                    
+                    <div class="flex items-center space-x-1">
+                        <!-- Sound & Music Controls -->
+                        <button onclick="toggleSound()" id="sound-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Toggle Page Flip Sound">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="toggleBgm()" id="bgm-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-400 transition-colors" title="Toggle Background Music">
+                            <i data-lucide="music" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="openAudioSettings()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Audio Settings">
+                            <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="toggleReaderSpeech()" id="reader-tts-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Read this book aloud" aria-label="Read this book aloud">
+                            <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="document.getElementById('page-recordings-input').click()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Choose recordings in page order and export the book" aria-label="Choose recordings in page order and export the book">
+                            <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <input type="file" id="page-recordings-input" accept="audio/*" multiple class="hidden" onchange="handlePageRecordingsUpload(event)">
+                        <div class="h-3 w-px bg-neutral-200 mx-1"></div>
+                        <button onclick="adjustZoom(0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom In"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+                        <button onclick="adjustZoom(-0.1)" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Zoom Out"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+                        <button onclick="resetZoom()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Reset Zoom"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i></button>
+                    </div>
+                </div>
+
+                <!-- Canvas Stage Area -->
+                <div id="stage-viewport" class="flex-1 flex items-center justify-center p-3 sm:p-6 overflow-hidden relative select-none">
+                    <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
+                        <div id="flipbook-root" class="page-flip-container"></div>
+                    </div>
+                    
+                    <div id="peel-corner-hint" class="absolute bottom-6 right-6 pointer-events-none opacity-60 flex items-center space-x-1 text-[11px] font-medium text-neutral-500 bg-white/80 backdrop-blur px-2.5 py-1 rounded-full shadow-sm border border-neutral-200/80">
+                        <span>Swipe right for next, left for previous</span>
+                        <i data-lucide="corner-down-left" class="w-3.5 h-3.5 peel-hint"></i>
+                    </div>
+                </div>
+
+                <!-- Bottom Bar Navigation Controls -->
+                <div class="h-12 border-t border-neutral-200 bg-white px-6 flex items-center justify-between shrink-0 z-10">
+                    <button onclick="turnPrev()" id="btn-prev" class="inline-flex items-center space-x-1.5 text-xs font-medium text-neutral-700 hover:text-neutral-900 px-3 py-1.5 rounded border border-neutral-200 hover:border-neutral-300 transition-all disabled:opacity-30">
+                        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        <span>Previous</span>
+                    </button>
+
+                    <div class="flex items-center space-x-3">
+                        <input type="range" id="page-slider" min="0" max="0" value="0" oninput="jumpToPage(parseInt(this.value))" class="w-40 accent-neutral-900 cursor-pointer">
+                    </div>
+
+                    <button onclick="turnNext()" id="btn-next" class="inline-flex items-center space-x-1.5 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 px-3 py-1.5 rounded transition-all disabled:opacity-30">
+                        <span>Next</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 bg-neutral-900 text-white text-xs px-3.5 py-2 rounded-lg shadow-xl transform translate-y-10 opacity-0 transition-all duration-200 z-50 flex items-center space-x-2">
+        <i data-lucide="info" class="w-3.5 h-3.5 text-neutral-300"></i>
+        <span id="toast-text">Notification</span>
+    </div>
+
+    <!-- Audio Settings Modal -->
+    <div id="audio-modal" class="fixed inset-0 bg-violet-950/25 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gradient-to-br from-white via-white to-violet-50 rounded-2xl shadow-2xl shadow-violet-950/10 border border-violet-100 w-full max-w-sm p-6 relative">
+            <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
+                <span class="text-xs font-semibold text-neutral-900">Audio & Background Music</span>
+                <button onclick="closeAudioSettings()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-neutral-600 font-medium mb-1.5">Background Ambient Track</label>
+                    <select id="bgm-select" onchange="changeBgmTrack(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
+                        <option value="piano">Ambient Piano Stream</option>
+                        <option value="lofi">Lofi Focus Chords</option>
+                        <option value="zen">Zen Meditation Pads</option>
+                        <option value="custom">Upload Custom MP3 File...</option>
+                    </select>
+                    <input type="file" id="custom-bgm-input" accept="audio/*" class="hidden mt-2" onchange="handleCustomAudioUpload(event)">
+                </div>
+
+                <div>
+                    <label for="reader-voice-select" class="block text-neutral-600 font-medium mb-1.5">Reader Voice</label>
+                    <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs text-neutral-800 focus:outline-none focus:border-neutral-400">
+                        <option value="">Loading available voices…</option>
+                    </select>
+                    <p class="text-[10px] text-neutral-400 mt-1">Uses your page recordings when added; otherwise uses voices available on this device.</p>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-neutral-600 mb-1">
+                        <span>Background Music Volume</span>
+                        <span id="bgm-vol-val">30%</span>
+                    </div>
+                    <input type="range" id="bgm-volume" min="0" max="1" step="0.05" value="0.3" oninput="setBgmVolume(this.value)" class="w-full accent-violet-500">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-neutral-600 mb-1">
+                        <span>Page Flip Sound Effect Volume</span>
+                        <span id="flip-vol-val">60%</span>
+                    </div>
+                    <input type="range" id="flip-volume" min="0" max="1" step="0.05" value="0.6" oninput="setFlipVolume(this.value)" class="w-full accent-violet-500">
+                </div>
+            </div>
+
+            <button onclick="closeAudioSettings()" class="mt-6 w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg font-medium text-xs transition-colors">
+                Done
+            </button>
+        </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="share-modal" class="fixed inset-0 bg-violet-950/25 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gradient-to-br from-white via-white to-orange-50 rounded-2xl shadow-2xl shadow-violet-950/10 border border-violet-100 w-full max-w-md p-6 relative">
+            <div class="flex items-center justify-between pb-4 border-b border-neutral-100 mb-4">
+                <span class="text-xs font-semibold text-neutral-900">Share Flippable Book</span>
+                <button onclick="closeShareModal()" class="text-neutral-400 hover:text-neutral-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <p class="text-xs text-neutral-500 mb-4">Share this interactive publication with all page designs, 3D flip physics, sound effects, and background music included.</p>
+
+            <div class="space-y-3">
+                <button onclick="copyShareLink()" class="w-full py-2.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg font-medium text-xs transition-colors flex items-center justify-center space-x-2">
+                    <i data-lucide="link" class="w-3.5 h-3.5"></i>
+                    <span>Copy Full Interactive Share Link</span>
+                </button>
+                <button onclick="exportStandaloneHTML()" class="w-full py-2.5 px-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg font-medium text-xs transition-colors flex items-center justify-center space-x-2 border border-neutral-200">
+                    <i data-lucide="file-code" class="w-3.5 h-3.5"></i>
+                    <span>Download Self-Contained Web App (.html)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+
+        // Platform Application State
+        let state = {
+            pages: [],
+            pageText: [],
+            pageRecordings: [],
+            currentPage: 0,
+            zoom: 1,
+            sound: true,
+            bgm: false,
+            bgmTrack: 'piano',
+            customAudioData: null,
+            bgmVolume: 0.3,
+            flipVolume: 0.6,
+            fileName: 'publication.pdf',
+            hasCompletionPage: false
+        };
+
+        let pageFlipInstance = null;
+        let thumbRenderIndex = 0;
+        let bgmAudioCtx = null;
+        let bgmOscillators = [];
+        let bgmGainNode = null;
+        let customAudioEl = null;
+        let readerSpeechActive = false;
+        let readerSpeechPage = 0;
+        let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
+        let readerSpeechToken = 0;
+        let readerSpeechVoices = [];
+        const readerAudio = new Audio();
+        let pdfLoadToken = 0;
+        const flipAudio = new Audio('flip.mp3');
+        flipAudio.preload = 'auto';
+        let firebaseApp = null;
+        const firebaseConfig = {
+  apiKey: "AIzaSyAbx4u1hvyUaaiqKaklrnWo7e_jRrRkKwk",
+  authDomain: "flip-pdf-site.firebaseapp.com",
+  projectId: "flip-pdf-site",
+  storageBucket: "flip-pdf-site.firebasestorage.app",
+  messagingSenderId: "65159721908",
+  appId: "1:65159721908:web:639026cce35cfe177ff8e1",
+  measurementId: "G-JJ45REKDWL"
+};
+
+        function getFirebase() {
+            if (firebaseApp) return firebaseApp;
+            if (!window.firebase || firebaseConfig.apiKey.startsWith('YOUR_')) {
+                throw new Error('Firebase is not configured yet. Add your Firebase web app settings first.');
+            }
+            firebaseApp = firebase.initializeApp(firebaseConfig);
+            return firebaseApp;
+        }
+
+        function populateReaderVoices() {
+            const select = document.getElementById('reader-voice-select');
+            if (!select) return;
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                select.innerHTML = '<option value="">Speech unavailable in this browser</option>';
+                document.getElementById('reader-tts-btn')?.setAttribute('disabled', '');
+                return;
+            }
+            readerSpeechVoices = window.speechSynthesis.getVoices();
+            const selectedVoice = readerSpeechVoiceName;
+            select.innerHTML = '';
+            if (readerSpeechVoices.length === 0) {
+                select.add(new Option('System default voice', ''));
+                select.value = '';
+                return;
+            }
+            readerSpeechVoices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = `${voice.name} · ${voice.lang}`;
+                select.appendChild(option);
+            });
+            const defaultVoice = readerSpeechVoices.find(voice => voice.default) ||
+                readerSpeechVoices.find(voice => voice.lang.toLowerCase().startsWith('en')) ||
+                readerSpeechVoices[0];
+            readerSpeechVoiceName = readerSpeechVoices.some(voice => voice.name === selectedVoice)
+                ? selectedVoice
+                : defaultVoice.name;
+            select.value = readerSpeechVoiceName;
+        }
+
+        function setReaderVoice(voiceName) {
+            readerSpeechVoiceName = voiceName;
+            if (voiceName) localStorage.setItem('flipdf-reader-voice', voiceName);
+            else localStorage.removeItem('flipdf-reader-voice');
+            if (readerSpeechActive) {
+                readerSpeechToken++;
+                window.speechSynthesis?.cancel();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+            }
+        }
+
+        async function handlePageRecordingsUpload(event) {
+            const input = event.target;
+            const files = Array.from(input.files || []);
+            input.value = '';
+            if (!files.length) return;
+            if (files.length > state.pages.length) {
+                showToast(`Choose no more than ${state.pages.length} recordings, in page order.`);
+                return;
+            }
+
+            try {
+                const recordings = await Promise.all(files.map(file => new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}.`));
+                    reader.readAsDataURL(file);
+                })));
+                state.pageRecordings = Array(state.pages.length).fill(null);
+                recordings.forEach((recording, index) => {
+                    state.pageRecordings[index] = recording;
+                });
+                if (readerSpeechActive) stopReaderSpeech();
+                updateReaderSpeechButton();
+                await exportStandaloneHTML();
+            } catch (error) {
+                console.error('Could not load page recordings.', error);
+                showToast(error.message || 'Could not load the page recordings.');
+            }
+        }
+
+        function hasPageRecordings() {
+            return state.pageRecordings.some(Boolean);
+        }
+
+        function toggleReaderSpeech() {
+            if (readerSpeechActive) {
+                stopReaderSpeech();
+                return;
+            }
+            if (hasPageRecordings()) {
+                if (!state.pageRecordings[state.currentPage]) {
+                    showToast('There is no recording for this page.');
+                    return;
+                }
+                readerSpeechActive = true;
+                readerSpeechPage = state.currentPage;
+                readerSpeechToken++;
+                updateReaderSpeechButton();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+                return;
+            }
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                showToast('Read aloud is not supported by this browser.');
+                return;
+            }
+            const currentText = state.pageText[state.currentPage] || '';
+            if (!currentText.trim()) {
+                showToast('No selectable text on this page. Scanned pages need OCR.');
+                return;
+            }
+            readerSpeechActive = true;
+            readerSpeechPage = state.currentPage;
+            readerSpeechToken++;
+            updateReaderSpeechButton();
+            speakReaderPage(readerSpeechPage, readerSpeechToken);
+        }
+
+        function stopReaderSpeech() {
+            readerSpeechActive = false;
+            readerSpeechToken++;
+            window.speechSynthesis?.cancel();
+            readerAudio.pause();
+            readerAudio.currentTime = 0;
+            updateReaderSpeechButton();
+        }
+
+        function updateReaderSpeechButton() {
+            const button = document.getElementById('reader-tts-btn');
+            if (!button) return;
+            const actionLabel = hasPageRecordings() ? 'Play page recording' : 'Read this book aloud';
+            button.title = readerSpeechActive ? 'Stop reading aloud' : actionLabel;
+            button.setAttribute('aria-label', button.title);
+            button.classList.toggle('text-neutral-900', readerSpeechActive);
+            button.classList.toggle('text-neutral-600', !readerSpeechActive);
+            const icon = button.querySelector('i');
+            if (icon) icon.setAttribute('data-lucide', readerSpeechActive ? 'pause' : 'headphones');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        async function speakReaderPage(pageIndex, token) {
+            if (!readerSpeechActive || token !== readerSpeechToken) return;
+            if (hasPageRecordings()) {
+                playRecordedPage(pageIndex, token);
+                return;
+            }
+            if (pageIndex >= state.pages.length || !state.pageText[pageIndex]?.trim()) {
+                stopReaderSpeech();
+                showToast('Reached the end of the available book text');
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== state.currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            try {
+                const textChunks = splitSpeechText(state.pageText[pageIndex], 220);
+                for (const text of textChunks) {
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = readerSpeechVoices.find(voice => voice.name === readerSpeechVoiceName) || null;
+                    await new Promise((resolve, reject) => {
+                        utterance.onend = resolve;
+                        utterance.onerror = event => {
+                            if (!readerSpeechActive || token !== readerSpeechToken ||
+                                event.error === 'canceled' || event.error === 'interrupted') resolve();
+                            else reject(new Error(`Speech synthesis failed: ${event.error}`));
+                        };
+                        window.speechSynthesis.speak(utterance);
+                    });
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                }
+                let nextPage = pageIndex + 1;
+                while (nextPage < state.pageText.length && !state.pageText[nextPage]?.trim()) nextPage++;
+                if (nextPage < state.pageText.length) speakReaderPage(nextPage, token);
+                else stopReaderSpeech();
+            } catch (error) {
+                console.error('Device speech failed', error);
+                stopReaderSpeech();
+                showToast('The selected device voice could not read this page.');
+            }
+        }
+
+        function playRecordedPage(pageIndex, token) {
+            const recording = state.pageRecordings[pageIndex];
+            if (!recording) {
+                stopReaderSpeech();
+                showToast('There is no recording for this page.');
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== state.currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            readerAudio.onended = () => {
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < state.pageRecordings.length && !state.pageRecordings[nextPage]) nextPage++;
+                if (nextPage < state.pageRecordings.length) {
+                    if (pageFlipInstance) pageFlipInstance.flip(nextPage);
+                    else speakReaderPage(nextPage, token);
+                } else {
+                    stopReaderSpeech();
+                }
+            };
+            readerAudio.onerror = () => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    stopReaderSpeech();
+                    showToast('The page recording could not be played.');
+                }
+            };
+            readerAudio.src = recording;
+            readerAudio.play().catch(error => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    console.error('Could not play page recording.', error);
+                    stopReaderSpeech();
+                    showToast('Could not play the page recording. Tap play to try again.');
+                }
+            });
+        }
+
+        function splitSpeechText(value, maxLength = 1800) {
+            const words = value.replace(/\s+/g, ' ').trim().split(' ');
+            const chunks = [];
+            let chunk = '';
+            words.forEach(word => {
+                if (chunk && `${chunk} ${word}`.length > maxLength) {
+                    chunks.push(chunk);
+                    chunk = word;
+                } else chunk = chunk ? `${chunk} ${word}` : word;
+            });
+            if (chunk) chunks.push(chunk);
+            return chunks;
+        }
+
+        if (window.speechSynthesis) {
+            window.speechSynthesis.onvoiceschanged = populateReaderVoices;
+            populateReaderVoices();
+        }
+
+        function signInForSharing() {
+            const app = getFirebase();
+            return app.auth().currentUser
+                ? Promise.resolve(app.auth().currentUser)
+                : app.auth().signInAnonymously().then(result => result.user);
+        }
+
+        function makeCompletionPage() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 1100;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 800, 1100);
+            gradient.addColorStop(0, '#fff7ed');
+            gradient.addColorStop(1, '#f3e8ff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#7c3aed';
+            ctx.beginPath();
+            ctx.arc(400, 380, 54, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(375, 380);
+            ctx.lineTo(393, 398);
+            ctx.lineTo(427, 360);
+            ctx.stroke();
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#27213a';
+            ctx.font = '600 46px Inter, sans-serif';
+            ctx.fillText("You're all done", 400, 500);
+            ctx.fillStyle = '#756b82';
+            ctx.font = '22px Inter, sans-serif';
+            ctx.fillText('Thanks for reading', 400, 548);
+            return canvas.toDataURL('image/jpeg', 0.92);
+        }
+
+        function appendCompletionPage() {
+            if (state.hasCompletionPage) return;
+            state.pages.push(makeCompletionPage());
+            state.pageText.push('');
+            state.pageRecordings.push(null);
+            state.hasCompletionPage = true;
+        }
+
+        async function loadSharedBook(bookId) {
+            try {
+                const app = getFirebase();
+                const snapshot = await app.firestore().collection('sharedBooks').doc(bookId).get();
+                if (!snapshot.exists) throw new Error('This shared book could not be found.');
+                const book = snapshot.data();
+                state.pages = book.pageUrls || [];
+                if (!state.pages.length) throw new Error('This shared book has no pages.');
+                state.pageRecordings = Array(state.pages.length).fill(null);
+                state.pageText = [];
+                if (book.textUrl) {
+                    try {
+                        const textResponse = await fetch(book.textUrl);
+                        if (textResponse.ok) state.pageText = await textResponse.json();
+                    } catch (textError) {
+                        console.warn('Could not load shared book text for speech reading.', textError);
+                    }
+                }
+                state.fileName = book.fileName || 'Shared publication.pdf';
+                state.sound = book.sound !== false;
+                state.bgm = book.bgm === true;
+                state.bgmTrack = book.bgmTrack || 'piano';
+                state.customAudioData = book.customAudioUrl || null;
+                state.bgmVolume = Number.isFinite(book.bgmVolume) ? book.bgmVolume : 0.3;
+                state.flipVolume = Number.isFinite(book.flipVolume) ? book.flipVolume : 0.6;
+                state.hasCompletionPage = true;
+                launchReader();
+                if (state.bgm) {
+                    startBgm();
+                    document.addEventListener('pointerdown', () => {
+                        if (state.bgm) startBgm();
+                    }, { once: true });
+                }
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || 'Unable to load the shared book');
+            }
+        }
+
+        function openSharedBookFromUrl() {
+            const match = location.hash.match(/^#book=([A-Za-z0-9_-]+)$/);
+            if (!match) return;
+            document.getElementById('view-workspace').classList.add('hidden');
+            document.getElementById('view-reader').classList.remove('hidden');
+            document.getElementById('nav-actions').classList.add('hidden');
+            showToast('Loading shared book...');
+            loadSharedBook(match[1]);
+        }
+
+        window.addEventListener('DOMContentLoaded', openSharedBookFromUrl);
+
+        function getAudioContext() {
+            if (!window.audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                window.audioCtx = new AudioCtx();
+            }
+            if (window.audioCtx.state === 'suspended') {
+                window.audioCtx.resume();
+            }
+            return window.audioCtx;
+        }
+
+        function playFlipAudio() {
+            if (!state.sound) return;
+            if (flipAudio.readyState > 0) flipAudio.currentTime = 0;
+            flipAudio.volume = state.flipVolume;
+            flipAudio.play().catch(error => console.warn('Unable to play flip.mp3', error));
+        }
+
+        // Ambient Background Music Generator (Synthesizer & Audio Player)
+        function toggleBgm() {
+            state.bgm = !state.bgm;
+            const btn = document.getElementById('bgm-btn');
+            if (state.bgm) {
+                btn.className = 'p-1.5 hover:bg-neutral-100 rounded text-neutral-900 transition-colors bg-neutral-200/60';
+                startBgm();
+                showToast('Background music enabled');
+            } else {
+                btn.className = 'p-1.5 hover:bg-neutral-100 rounded text-neutral-400 transition-colors';
+                stopBgm();
+                showToast('Background music stopped');
+            }
+        }
+
+        function startBgm() {
+            stopBgm();
+            if (!state.bgm) return;
+
+            if (state.bgmTrack === 'custom' && state.customAudioData) {
+                if (!customAudioEl) {
+                    customAudioEl = new Audio(state.customAudioData);
+                    customAudioEl.loop = true;
+                }
+                customAudioEl.volume = state.bgmVolume;
+                customAudioEl.play().catch(() => {});
+                return;
+            }
+
+            try {
+                const ctx = getAudioContext();
+                bgmGainNode = ctx.createGain();
+                bgmGainNode.gain.setValueAtTime(state.bgmVolume * 0.15, ctx.currentTime);
+                bgmGainNode.connect(ctx.destination);
+
+                let freqs = [220, 277.18, 329.63, 440]; // A Major 7
+                if (state.bgmTrack === 'lofi') freqs = [174.61, 220, 261.63, 329.63]; // Fmaj7
+                if (state.bgmTrack === 'zen') freqs = [130.81, 196.00, 261.63, 392.00]; // C sub-harmonics
+
+                bgmOscillators = freqs.map((freq) => {
+                    const osc = ctx.createOscillator();
+                    const lfo = ctx.createOscillator();
+                    const lfoGain = ctx.createGain();
+
+                    osc.type = state.bgmTrack === 'zen' ? 'sine' : 'triangle';
+                    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+                    // Gentle pitch shimmer (vibrato)
+                    lfo.frequency.setValueAtTime(0.2 + Math.random() * 0.1, ctx.currentTime);
+                    lfoGain.gain.setValueAtTime(1.5, ctx.currentTime);
+                    lfo.connect(osc.frequency);
+                    lfo.start();
+
+                    osc.connect(bgmGainNode);
+                    osc.start();
+                    return { osc, lfo };
+                });
+            } catch(e) {}
+        }
+
+        function stopBgm() {
+            if (customAudioEl) {
+                customAudioEl.pause();
+                customAudioEl = null;
+            }
+            if (bgmOscillators.length) {
+                bgmOscillators.forEach(o => {
+                    try { o.osc.stop(); o.lfo.stop(); } catch(e){}
+                });
+                bgmOscillators = [];
+            }
+        }
+
+        function setBgmVolume(val) {
+            state.bgmVolume = parseFloat(val);
+            document.getElementById('bgm-vol-val').innerText = Math.round(state.bgmVolume * 100) + '%';
+            if (bgmGainNode) {
+                bgmGainNode.gain.setValueAtTime(state.bgmVolume * 0.15, getAudioContext().currentTime);
+            }
+            if (customAudioEl) {
+                customAudioEl.volume = state.bgmVolume;
+            }
+        }
+
+        function setFlipVolume(val) {
+            state.flipVolume = parseFloat(val);
+            document.getElementById('flip-vol-val').innerText = Math.round(state.flipVolume * 100) + '%';
+            flipAudio.volume = state.flipVolume;
+        }
+
+        function changeBgmTrack(val) {
+            if (val === 'custom') {
+                document.getElementById('custom-bgm-input').click();
+                return;
+            }
+            state.bgmTrack = val;
+            state.customAudioData = null;
+            if (state.bgm) startBgm();
+        }
+
+        function handleCustomAudioUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                state.customAudioData = evt.target.result;
+                state.bgmTrack = 'custom';
+                showToast('Custom audio track loaded');
+                if (state.bgm) startBgm();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function openAudioSettings() {
+            document.getElementById('audio-modal').classList.remove('hidden');
+        }
+
+        function closeAudioSettings() {
+            document.getElementById('audio-modal').classList.add('hidden');
+        }
+
+        function getPageFlipConstructor() {
+            if (window.St && window.St.PageFlip) return window.St.PageFlip;
+            if (window.PageFlip && window.PageFlip.PageFlip) return window.PageFlip.PageFlip;
+            if (typeof window.PageFlip === 'function') return window.PageFlip;
+            return null;
+        }
+
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('pdf-file-input');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-neutral-500'); });
+        dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-neutral-500'); });
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('border-neutral-500');
+            if (e.dataTransfer.files.length > 0) processPDF(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) processPDF(e.target.files[0]);
+        });
+
+        async function processPDF(file) {
+            const loadToken = ++pdfLoadToken;
+            stopReaderSpeech();
+            state.fileName = file.name;
+            state.hasCompletionPage = false;
+            state.pageRecordings = [];
+            showToast('Opening PDF…');
+            try {
+                const buffer = await file.arrayBuffer();
+                const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+                if (loadToken !== pdfLoadToken) {
+                    await doc.destroy();
+                    return;
+                }
+                const isMobile = window.matchMedia('(max-width: 767px)').matches;
+                const maxPixelsPerPage = isMobile ? 900000 : 2600000;
+                const renderScale = isMobile ? 1 : 1.5;
+                const blankCanvas = document.createElement('canvas');
+                blankCanvas.width = 2;
+                blankCanvas.height = 2;
+                const blankContext = blankCanvas.getContext('2d');
+                blankContext.fillStyle = '#ffffff';
+                blankContext.fillRect(0, 0, 2, 2);
+                const blankPage = blankCanvas.toDataURL('image/jpeg', 0.5);
+                blankCanvas.width = 0;
+                blankCanvas.height = 0;
+                state.pages = Array(doc.numPages).fill(blankPage);
+                state.pageText = Array(doc.numPages).fill('');
+                state.pageRecordings = Array(doc.numPages).fill(null);
+                const firstBatchSize = Math.min(4, doc.numPages);
+                let readerLaunched = false;
+
+                for (let i = 1; i <= doc.numPages; i++) {
+                    if (loadToken !== pdfLoadToken) {
+                        await doc.destroy();
+                        return;
+                    }
+                    const page = await doc.getPage(i);
+                    const textContent = await page.getTextContent();
+                    state.pageText[i - 1] = textContent.items.map(item => item.str || '').join(' ').replace(/\s+/g, ' ').trim();
+                    let viewport = page.getViewport({ scale: renderScale });
+                    const pixelCount = viewport.width * viewport.height;
+                    if (pixelCount > maxPixelsPerPage) {
+                        viewport = page.getViewport({ scale: renderScale * Math.sqrt(maxPixelsPerPage / pixelCount) });
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    const ctx = canvas.getContext('2d', { alpha: false }); // Disable alpha channel to force solid output
+                    
+                    // Pre-fill solid white background before rendering PDF contents
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+                    const pageImage = canvas.toDataURL('image/jpeg', isMobile ? 0.78 : 0.88);
+                    state.pages[i - 1] = pageImage;
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    page.cleanup();
+                    if (readerLaunched) updateRenderedPage(i - 1, pageImage);
+
+                    if (!readerLaunched && i === firstBatchSize) {
+                        readerLaunched = true;
+                        launchReader();
+                        showToast(`Book ready · rendering ${doc.numPages - i} more pages…`);
+                    } else if (readerLaunched && (i % 8 === 0 || i === doc.numPages)) {
+                        showToast(`Rendering page ${i} of ${doc.numPages}…`);
+                    }
+                }
+
+                await doc.destroy();
+                if (loadToken === pdfLoadToken) showToast(`Ready · ${doc.numPages} pages rendered`);
+            } catch (e) {
+                console.error(e);
+                if (loadToken === pdfLoadToken) showToast('Unable to parse PDF file');
+            }
+        }
+
+        function updateRenderedPage(pageIndex, pageImage) {
+            const pageImageElement = document.querySelector(`#flipbook-root img[data-page-index="${pageIndex}"]`);
+            if (pageImageElement) pageImageElement.src = pageImage;
+            const thumbnailImage = document.querySelector(`#thumb-container img[data-page-index="${pageIndex}"]`);
+            if (thumbnailImage) thumbnailImage.src = pageImage;
+        }
+
+        function loadSampleBook(type) {
+            showToast('Building sample book...');
+            state.hasCompletionPage = false;
+            state.pageRecordings = [];
+            let pages = [];
+            for (let i = 1; i <= 8; i++) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 800;
+                canvas.height = 1100;
+                const ctx = canvas.getContext('2d', { alpha: false }); // Force non-transparent canvas
+
+                ctx.fillStyle = i === 1 ? (type === 'editorial' ? '#111827' : '#27272a') : '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                if (i === 1) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 52px Inter, sans-serif';
+                    ctx.fillText(type === 'editorial' ? 'Editorial Journal' : 'Minimal Catalog', 70, 200);
+                    ctx.font = '20px Inter, sans-serif';
+                    ctx.fillStyle = '#9ca3af';
+                    ctx.fillText('Volume 01 • Dynamic Bending Physics & Audio', 70, 260);
+                } else {
+                    ctx.fillStyle = '#111827';
+                    ctx.font = 'bold 32px Inter, sans-serif';
+                    ctx.fillText(`Chapter 0${i - 1}`, 70, 110);
+
+                    ctx.fillStyle = '#6b7280';
+                    ctx.font = '18px Inter, sans-serif';
+                    ctx.fillText("Interactive page flip engine with dynamic corner peeling, audio synthesis & ambient sound.", 70, 150);
+
+                    ctx.fillStyle = '#f4f4f5';
+                    ctx.fillRect(70, 210, 660, 750);
+                    ctx.fillStyle = '#a1a1aa';
+                    ctx.font = '16px Inter, sans-serif';
+                    ctx.fillText(`Illustration Plate 0${i}`, 320, 600);
+                }
+
+                ctx.fillStyle = i === 1 ? '#9ca3af' : '#111827';
+                ctx.font = '16px Inter, sans-serif';
+                ctx.fillText(`Page ${i}`, canvas.width - 100, canvas.height - 70);
+
+                pages.push(canvas.toDataURL('image/jpeg', 0.95));
+            }
+
+            state.pages = pages;
+            state.pageRecordings = Array(pages.length).fill(null);
+            state.pageText = Array.from({ length: pages.length }, (_, idx) => idx === 0 ? '' : `Sample page ${idx + 1}. This sample page demonstrates the FlipDF reading experience. Upload a text-based PDF to use read aloud.`);
+            state.fileName = type === 'editorial' ? 'Editorial_Journal.pdf' : 'Minimal_Catalog.pdf';
+            launchReader();
+        }
+
+        function launchReader() {
+            appendCompletionPage();
+            state.currentPage = 0;
+            document.getElementById('bgm-select').value = state.bgmTrack;
+            document.getElementById('bgm-volume').value = state.bgmVolume;
+            document.getElementById('flip-volume').value = state.flipVolume;
+            document.getElementById('bgm-vol-val').innerText = Math.round(state.bgmVolume * 100) + '%';
+            document.getElementById('flip-vol-val').innerText = Math.round(state.flipVolume * 100) + '%';
+            switchView('reader');
+            buildThumbnails();
+            initStPageFlip();
+        }
+
+        function switchView(view) {
+            if (view === 'workspace') {
+                stopReaderSpeech();
+                document.getElementById('view-reader').classList.add('hidden');
+                document.getElementById('view-workspace').classList.remove('hidden');
+                document.getElementById('nav-actions').classList.add('hidden');
+                stopBgm();
+            } else {
+                document.getElementById('view-workspace').classList.add('hidden');
+                document.getElementById('view-reader').classList.remove('hidden');
+                document.getElementById('nav-actions').classList.remove('hidden');
+            }
+        }
+
+        function initStPageFlip() {
+            const container = document.getElementById('flipbook-root');
+            container.innerHTML = '';
+
+            if (pageFlipInstance) {
+                try { pageFlipInstance.destroy(); } catch (e) {}
+            }
+
+            const PageFlipClass = getPageFlipConstructor();
+            if (!PageFlipClass) {
+                showToast('Flipbook engine loading, please try again in a moment');
+                return;
+            }
+
+            const isMobile = window.matchMedia('(max-width: 767px)').matches;
+            const stage = document.getElementById('stage-viewport');
+            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 64), 1000);
+            const stageHeight = Math.min(stage.clientHeight - 16, 800);
+
+            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
+            let pageH = Math.floor(stageHeight);
+
+            if (state.pages.length > 0) {
+                const img = new Image();
+                img.onload = () => {
+                    const aspect = img.width / img.height;
+                    pageH = Math.min(stageHeight, 750);
+                    pageW = Math.floor(pageH * aspect);
+                    
+                    if (!isMobile && pageW * 2 > stageWidth) {
+                        pageW = Math.floor(stageWidth / 2);
+                        pageH = Math.floor(pageW / aspect);
+                    } else if (isMobile && pageW > stageWidth) {
+                        pageW = stageWidth;
+                        pageH = Math.floor(pageW / aspect);
+                    }
+
+                    setupPageFlipInstance(PageFlipClass, pageW, pageH, isMobile);
+                };
+                img.src = state.pages[0];
+            } else {
+                setupPageFlipInstance(PageFlipClass, 400, 560, isMobile);
+            }
+        }
+
+        function setupPageFlipInstance(PageFlipClass, width, height, isMobile) {
+            const container = document.getElementById('flipbook-root');
+            
+            pageFlipInstance = new PageFlipClass(container, {
+                width: width,
+                height: height,
+                size: "fixed",
+                minWidth: 260,
+                maxWidth: 1000,
+                minHeight: 350,
+                maxHeight: 1200,
+                drawShadow: true,
+                maxShadowOpacity: isMobile ? 0.22 : 0.32,
+                flippingTime: isMobile ? 420 : 550,
+                swipeDistance: isMobile ? 24 : 18,
+                usePortrait: isMobile,
+                startZIndex: 0,
+                startPage: 0,
+                autoSize: true,
+                clickEventForward: true,
+                useMouseEvents: !isMobile,
+                showCover: true,
+                mobileScrollSupport: false
+            });
+
+            // Create solid image element nodes with opaque styling
+            const pageElements = state.pages.map((dataUrl, idx) => {
+                const pageWrapper = document.createElement('div');
+                pageWrapper.className = 'stpageflip-page bg-white';
+                pageWrapper.setAttribute('data-density', idx === 0 || idx === state.pages.length - 1 ? 'hard' : 'soft');
+
+                const img = document.createElement('img');
+                img.src = dataUrl;
+                img.dataset.pageIndex = idx;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                img.style.backgroundColor = '#ffffff';
+                img.style.display = 'block';
+
+                pageWrapper.appendChild(img);
+                return pageWrapper;
+            });
+
+            pageFlipInstance.loadFromHTML(pageElements);
+
+            pageFlipInstance.on('flip', (e) => {
+                state.currentPage = e.data;
+                if (readerSpeechActive && e.data !== readerSpeechPage) {
+                    readerSpeechPage = e.data;
+                    readerSpeechToken++;
+                    window.speechSynthesis?.cancel();
+                    readerAudio.pause();
+                    readerAudio.currentTime = 0;
+                    speakReaderPage(readerSpeechPage, readerSpeechToken);
+                }
+                updateNavigationUI();
+                playFlipAudio();
+            });
+
+            updateNavigationUI();
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            if (!toast || !toastText) return;
+            toastText.innerText = msg;
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-10', 'opacity-0');
+            }, 3000);
+        }
+
+        function updateNavigationUI() {
+            const total = state.pages.length;
+            const current = state.currentPage;
+            const counter = document.getElementById('page-counter');
+            const slider = document.getElementById('page-slider');
+            const btnPrev = document.getElementById('btn-prev');
+            const btnNext = document.getElementById('btn-next');
+
+            if (counter) counter.innerText = `Page ${current + 1} of ${total}`;
+            if (slider) {
+                slider.max = Math.max(0, total - 1);
+                slider.value = current;
+            }
+            if (btnPrev) btnPrev.disabled = current <= 0;
+            if (btnNext) btnNext.disabled = current >= total - 1;
+        }
+
+        function turnPrev() {
+            if (pageFlipInstance) pageFlipInstance.flipPrev();
+        }
+
+        function turnNext() {
+            if (pageFlipInstance) pageFlipInstance.flipNext();
+        }
+
+        function jumpToPage(pageIdx) {
+            if (pageFlipInstance) pageFlipInstance.flip(pageIdx);
+        }
+
+        function toggleSound() {
+            state.sound = !state.sound;
+            const btn = document.getElementById('sound-btn');
+            if (btn) {
+                btn.className = state.sound 
+                    ? 'p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors' 
+                    : 'p-1.5 hover:bg-neutral-100 rounded text-neutral-300 transition-colors';
+            }
+            showToast(state.sound ? 'Sound enabled' : 'Sound muted');
+        }
+
+        function adjustZoom(delta) {
+            state.zoom = Math.max(0.6, Math.min(2.0, state.zoom + delta));
+            const wrapper = document.getElementById('zoom-wrapper');
+            if (wrapper) wrapper.style.transform = `scale(${state.zoom})`;
+        }
+
+        function resetZoom() {
+            state.zoom = 1;
+            const wrapper = document.getElementById('zoom-wrapper');
+            if (wrapper) wrapper.style.transform = `scale(1)`;
+        }
+
+        function toggleThumbnails() {
+            const drawer = document.getElementById('thumb-drawer');
+            if (!drawer) return;
+            drawer.classList.toggle('-ml-56');
+        }
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().catch(() => showToast('Fullscreen mode blocked'));
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function buildThumbnails() {
+            const container = document.getElementById('thumb-container');
+            if (!container) return;
+            container.innerHTML = '';
+            thumbRenderIndex = 0;
+            container.onscroll = () => {
+                if (container.scrollTop + container.clientHeight >= container.scrollHeight - 120) appendThumbnailBatch();
+            };
+            appendThumbnailBatch();
+        }
+
+        function appendThumbnailBatch() {
+            const container = document.getElementById('thumb-container');
+            if (!container || thumbRenderIndex >= state.pages.length) return;
+            const batchEnd = Math.min(thumbRenderIndex + 40, state.pages.length);
+            for (let idx = thumbRenderIndex; idx < batchEnd; idx++) {
+                const src = state.pages[idx];
+                const item = document.createElement('div');
+                item.className = 'cursor-pointer rounded border border-neutral-200 overflow-hidden hover:border-neutral-900 transition-all p-1 bg-white';
+                item.onclick = () => jumpToPage(idx);
+
+                const img = document.createElement('img');
+                img.src = src;
+                img.dataset.pageIndex = idx;
+                img.className = 'w-full h-auto object-contain rounded-sm';
+                img.loading = 'lazy';
+                img.decoding = 'async';
+
+                const label = document.createElement('div');
+                label.className = 'text-[10px] text-center text-neutral-500 mt-1';
+                label.innerText = `Page ${idx + 1}`;
+
+                item.appendChild(img);
+                item.appendChild(label);
+                container.appendChild(item);
+            }
+            thumbRenderIndex = batchEnd;
+        }
+
+        function openShareModal() {
+            document.getElementById('share-modal').classList.remove('hidden');
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+        }
+
+        function copyShareLink() {
+            createShareLink();
+        }
+
+        async function createShareLink() {
+            const shareButton = document.querySelector('#share-modal button[onclick="copyShareLink()"]');
+            const originalLabel = shareButton ? shareButton.innerText : '';
+            try {
+                if (!state.pages.length) throw new Error('Load a book before sharing it.');
+                if (shareButton) {
+                    shareButton.disabled = true;
+                    shareButton.innerText = 'Saving book and audio…';
+                }
+                const app = getFirebase();
+                const user = await signInForSharing();
+                const bookId = app.firestore().collection('sharedBooks').doc().id;
+                const storage = app.storage();
+                const pageUrls = await Promise.all(state.pages.map(async (pageData, index) => {
+                    if (/^https?:\/\//i.test(pageData)) return pageData;
+                    const path = `books/${user.uid}/${bookId}/pages/${String(index + 1).padStart(4, '0')}.jpg`;
+                    const ref = storage.ref(path);
+                    await ref.putString(pageData, 'data_url', { contentType: 'image/jpeg' });
+                    return ref.getDownloadURL();
+                }));
+                let textUrl = null;
+                if (state.pageText.some(text => text && text.trim())) {
+                    const textRef = storage.ref(`books/${user.uid}/${bookId}/page-text.json`);
+                    await textRef.putString(JSON.stringify(state.pageText), 'raw', { contentType: 'application/json' });
+                    textUrl = await textRef.getDownloadURL();
+                }
+                let customAudioUrl = null;
+                if (state.bgmTrack === 'custom' && state.customAudioData) {
+                    if (/^https?:\/\//i.test(state.customAudioData)) {
+                        customAudioUrl = state.customAudioData;
+                    } else {
+                        const audioRef = storage.ref(`books/${user.uid}/${bookId}/audio/custom-track`);
+                        await audioRef.putString(state.customAudioData, 'data_url');
+                        customAudioUrl = await audioRef.getDownloadURL();
+                    }
+                }
+                await app.firestore().collection('sharedBooks').doc(bookId).set({
+                    ownerUid: user.uid,
+                    fileName: state.fileName,
+                    pageUrls,
+                    textUrl,
+                    sound: state.sound,
+                    bgm: state.bgm,
+                    bgmTrack: state.bgmTrack,
+                    customAudioUrl,
+                    bgmVolume: state.bgmVolume,
+                    flipVolume: state.flipVolume,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                const shareUrl = `${location.origin}${location.pathname}#book=${bookId}`;
+                await navigator.clipboard.writeText(shareUrl);
+                closeShareModal();
+                showToast('Share link copied. Your book and audio are saved.');
+            } catch (error) {
+                console.error(error);
+                showToast(error.message || 'Could not create a share link');
+            } finally {
+                if (shareButton) {
+                    shareButton.disabled = false;
+                    shareButton.innerText = originalLabel;
+                }
+            }
+        }
+
+        async function exportStandaloneHTML() {
+            showToast('Preparing standalone book HTML...');
+            const pagesJSON = JSON.stringify(state.pages);
+            const pageTextJSON = JSON.stringify(state.pageText);
+            const pageRecordingsJSON = JSON.stringify(state.pageRecordings);
+            let tailwindCss;
+            try {
+                const stylesheet = Array.from(document.styleSheets).find(sheet =>
+                    sheet.href && new URL(sheet.href).pathname.endsWith('/styles.css')
+                );
+                const response = await fetch(stylesheet ? stylesheet.href : 'styles.css');
+                if (!response.ok) throw new Error('Could not load the production stylesheet.');
+                tailwindCss = await response.text();
+                if (!tailwindCss.trim()) throw new Error('The production stylesheet is empty.');
+            } catch (error) {
+                console.error(error);
+                showToast('Build styles.css before exporting the standalone book');
+                return;
+            }
+            let flipAudioData;
+            try {
+                const response = await fetch(new URL('flip.mp3', document.baseURI));
+                if (!response.ok) throw new Error('Could not load flip.mp3.');
+                const audioBlob = await response.blob();
+                flipAudioData = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error || new Error('Could not read flip.mp3.'));
+                    reader.readAsDataURL(audioBlob);
+                });
+            } catch (error) {
+                console.error(error);
+                showToast('Could not load flip.mp3 for the standalone book');
+                return;
+            }
+            const standaloneContent = `<!DOCTYPE html>
+<html lang="en" class="h-full select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${state.fileName.replace('.pdf', '')} - FlipDF Book</title>
+    <style>${tailwindCss}</style>
+    <script src="https://unpkg.com/lucide@latest"><\/script>
+    <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"><\/script>
+    <style>
+        .stpageflip-page, .page-flip-container canvas {
+            background-color: #ffffff !important;
+        }
+        .page-flip-container { display: flex; justify-content: center; align-items: center; margin: auto; position: relative; touch-action: none; }
+        .stpageflip-page { 
+            box-shadow: 0 8px 28px rgba(47,36,29,0.18); 
+            transform-style: preserve-3d;
+            isolation: isolate;
+            background-image: linear-gradient(90deg, rgba(112,83,56,0.08), transparent 8%, transparent 92%, rgba(112,83,56,0.07)) !important;
+        }
+        .stpageflip-page::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to right, rgba(63,45,31,0.18) 0%, rgba(63,45,31,0.04) 3%, transparent 13%, transparent 86%, rgba(63,45,31,0.04) 97%, rgba(63,45,31,0.14) 100%);
+            pointer-events: none;
+            z-index: 10;
+        }
+        .menu-popover {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            background: rgba(255, 250, 247, 0.97);
+            border-color: rgba(196, 181, 253, 0.65);
+            box-shadow: 0 18px 48px rgba(83, 61, 111, 0.16);
+        }
+        .menu-popover.hidden-menu {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(10px) scale(0.95);
+        }
+        @media (max-width: 767px) {
+            .menu-popover {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                top: auto;
+                width: 100%;
+                max-height: 58vh;
+                overflow-y: auto;
+                padding: 1.15rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+                border-radius: 1.5rem 1.5rem 0 0;
+                overscroll-behavior: contain;
+                transform: translateY(0);
+                transform-origin: bottom center;
+            }
+            .menu-popover::before {
+                content: '';
+                display: block;
+                width: 2.5rem;
+                height: 0.25rem;
+                border-radius: 9999px;
+                background: #d8cdea;
+                margin: 0 auto 0.8rem;
+            }
+            .menu-popover.hidden-menu {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+        }
+        .audio-banner {
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+        }
+        .audio-banner.hidden-banner {
+            transform: translateY(100%) translateY(1rem);
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-[#f5f5f7] text-neutral-900 h-full flex flex-col overflow-hidden relative font-sans">
+    
+    <div class="flex-1 flex items-center justify-center p-2 sm:p-6 relative overflow-hidden h-full" id="stage-area">
+        <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
+            <div id="flipbook-root" class="page-flip-container"></div>
+        </div>
+    </div>
+
+    <!-- Bottom Audio Control Info Banner -->
+    <div id="audio-info-banner" class="audio-banner hidden-banner fixed bottom-4 left-4 z-50 bg-gradient-to-r from-violet-50 to-orange-50 text-violet-950 backdrop-blur-md px-4 py-3 rounded-2xl shadow-lg border border-violet-100 flex items-center space-x-3 text-xs max-w-sm">
+        <div class="p-1.5 bg-white rounded-full text-violet-600 shrink-0">
+            <i data-lucide="music" class="w-4 h-4"></i>
+        </div>
+        <div class="flex-1 pr-1">
+            <p class="font-medium text-violet-950">Audio controls</p>
+            <p class="text-[11px] text-violet-700">Adjust music and page-turn sounds from the reader menu.</p>
+        </div>
+        <button onclick="dismissAudioBanner()" class="p-1 hover:bg-white rounded-full text-violet-500 hover:text-violet-800 transition-colors">
+            <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+    </div>
+
+    <div id="floating-bar" class="fixed bottom-5 right-5 z-50 flex items-center space-x-2 transition-opacity duration-500 opacity-100">
+        <button id="reader-tts-btn" onclick="toggleReaderSpeech()" class="w-10 h-10 text-neutral-700 hover:text-neutral-950 flex items-center justify-center transition-colors" title="Read this book aloud" aria-label="Read this book aloud">
+            <i data-lucide="headphones" class="w-4 h-4"></i>
+        </button>
+        <!-- Main Quick Toggle Action Button (3-Dot Menu) -->
+        <div class="relative">
+            <!-- 3-Dot Menu Popover Panel (Visible on load) -->
+            <div id="menu-popover" class="menu-popover hidden-menu absolute bottom-14 right-0 backdrop-blur-md border shadow-xl rounded-2xl p-3 w-64 text-xs space-y-3">
+                <div class="flex items-center justify-between pb-2 border-b border-neutral-100 font-semibold text-neutral-800">
+                    <span id="page-counter">Page 1 of ${state.pages.length}</span>
+                    <button onclick="toggleFullscreen()" class="p-1 hover:bg-neutral-100 rounded text-neutral-600" title="Toggle Fullscreen">
+                        <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <!-- Page Navigation Controls -->
+                <div class="flex items-center justify-between space-x-2">
+                    <button onclick="turnPrev()" id="btn-prev" class="flex-1 py-1.5 px-2 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-800 font-medium transition-colors flex items-center justify-center space-x-1 disabled:opacity-30">
+                        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        <span>Prev</span>
+                    </button>
+                    <button onclick="turnNext()" id="btn-next" class="flex-1 py-1.5 px-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded font-medium transition-colors flex items-center justify-center space-x-1 disabled:opacity-30">
+                        <span>Next</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <!-- Audio Settings Controls -->
+                <div class="pt-2 border-t border-neutral-100 space-y-2">
+                    <label class="block text-neutral-600 font-medium" for="reader-voice-select">Reader Voice</label>
+                    <select id="reader-voice-select" onchange="setReaderVoice(this.value)" class="w-full bg-white/80 border border-neutral-200 rounded-lg p-2 text-[11px] text-neutral-800 focus:outline-none focus:border-neutral-400">
+                        <option value="">Loading device voices…</option>
+                    </select>
+                    <p class="text-[10px] text-neutral-400">Uses your embedded page recordings when available.</p>
+                    <div class="flex items-center justify-between">
+                        <span class="text-neutral-600 font-medium">Page Flip Sound</span>
+                        <button onclick="toggleFlipSound()" id="sound-btn" class="p-1.5 ${state.sound ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
+                            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-neutral-600 font-medium">Background Music</span>
+                        <button onclick="toggleBgmSound()" id="bgm-btn" class="p-1.5 ${state.bgm ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'} rounded">
+                            <i data-lucide="music" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
+                    <div class="space-y-1 pt-1">
+                        <div class="flex justify-between text-[10px] text-neutral-500">
+                            <span>Music Volume</span>
+                            <span id="bgm-vol-text">${Math.round(state.bgmVolume * 100)}%</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.05" value="${state.bgmVolume}" oninput="setBgmVol(this.value)" class="w-full accent-neutral-900">
+                    </div>
+                </div>
+
+                <!-- Zoom Controls -->
+                <div class="pt-2 border-t border-neutral-100 flex items-center justify-around">
+                    <button onclick="adjustZoom(-0.1)" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Zoom Out"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+                    <button onclick="resetZoom()" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Reset Zoom"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i></button>
+                    <button onclick="adjustZoom(0.1)" class="p-1.5 bg-neutral-100 hover:bg-neutral-200 rounded text-neutral-700" title="Zoom In"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+                </div>
+            </div>
+
+            <!-- Floating 3-Dot Menu Toggle Button -->
+            <button onclick="toggleMenuPopover()" class="w-11 h-11 bg-neutral-900 text-white hover:bg-neutral-800 rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 border border-neutral-700/50">
+                <i data-lucide="more-vertical" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const pages = ${pagesJSON};
+        const pageText = ${pageTextJSON};
+        const pageRecordings = ${pageRecordingsJSON};
+        let pageFlipInstance = null;
+        let zoomVal = 1;
+        let soundEnabled = ${state.sound};
+        let bgmEnabled = ${state.bgm};
+        let bgmTrack = ${JSON.stringify(state.bgmTrack)};
+        let customAudioData = ${JSON.stringify(state.customAudioData)};
+        let bgmVolume = ${state.bgmVolume};
+        let flipVolume = ${state.flipVolume};
+        let currentPage = 0;
+        let readerSpeechActive = false;
+        let readerSpeechPage = 0;
+        let readerSpeechToken = 0;
+        let readerSpeechVoiceName = localStorage.getItem('flipdf-reader-voice') || '';
+        let readerSpeechVoices = [];
+        const readerAudio = new Audio();
+        const flipAudio = new Audio(${JSON.stringify(flipAudioData)});
+        flipAudio.preload = 'auto';
+
+        let audioCtx = null;
+        let bgmGainNode = null;
+        let bgmOscillators = [];
+        let customAudioEl = null;
+
+        let hideTimer = null;
+
+        function populateReaderVoices() {
+            const select = document.getElementById('reader-voice-select');
+            if (!select) return;
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                select.innerHTML = '<option value="">Speech unavailable in this browser</option>';
+                return;
+            }
+            readerSpeechVoices = window.speechSynthesis.getVoices();
+            const selectedVoice = readerSpeechVoiceName;
+            select.innerHTML = '';
+            if (readerSpeechVoices.length === 0) {
+                select.add(new Option('System default voice', ''));
+                select.value = '';
+                return;
+            }
+            readerSpeechVoices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = voice.name + ' · ' + voice.lang;
+                select.appendChild(option);
+            });
+            const fallback = readerSpeechVoices.find(voice => voice.default) ||
+                readerSpeechVoices.find(voice => voice.lang.toLowerCase().startsWith('en')) ||
+                readerSpeechVoices[0];
+            readerSpeechVoiceName = readerSpeechVoices.some(voice => voice.name === selectedVoice)
+                ? selectedVoice
+                : fallback.name;
+            select.value = readerSpeechVoiceName;
+        }
+
+        function setReaderVoice(voiceName) {
+            readerSpeechVoiceName = voiceName;
+            if (voiceName) localStorage.setItem('flipdf-reader-voice', voiceName);
+            else localStorage.removeItem('flipdf-reader-voice');
+            if (readerSpeechActive) {
+                readerSpeechToken++;
+                window.speechSynthesis?.cancel();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+            }
+        }
+
+        function hasPageRecordings() {
+            return pageRecordings.some(Boolean);
+        }
+
+        function toggleReaderSpeech() {
+            if (readerSpeechActive) {
+                stopReaderSpeech();
+                return;
+            }
+            if (hasPageRecordings()) {
+                if (!pageRecordings[currentPage]) {
+                    alert('There is no recording for this page.');
+                    return;
+                }
+                readerSpeechActive = true;
+                readerSpeechPage = currentPage;
+                readerSpeechToken++;
+                updateReaderSpeechButton();
+                speakReaderPage(readerSpeechPage, readerSpeechToken);
+                return;
+            }
+            if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                alert('Read aloud is not supported by this browser.');
+                return;
+            }
+            if (!pageText[currentPage]?.trim()) {
+                alert('No selectable text on this page. Scanned pages need OCR.');
+                return;
+            }
+            readerSpeechActive = true;
+            readerSpeechPage = currentPage;
+            readerSpeechToken++;
+            updateReaderSpeechButton();
+            speakReaderPage(readerSpeechPage, readerSpeechToken);
+        }
+
+        function stopReaderSpeech() {
+            readerSpeechActive = false;
+            readerSpeechToken++;
+            window.speechSynthesis?.cancel();
+            readerAudio.pause();
+            readerAudio.currentTime = 0;
+            updateReaderSpeechButton();
+        }
+
+        function updateReaderSpeechButton() {
+            const button = document.getElementById('reader-tts-btn');
+            if (!button) return;
+            const actionLabel = hasPageRecordings() ? 'Play page recording' : 'Read this book aloud';
+            button.title = readerSpeechActive ? 'Stop reading aloud' : actionLabel;
+            button.setAttribute('aria-label', button.title);
+            const icon = button.querySelector('i');
+            if (icon) icon.setAttribute('data-lucide', readerSpeechActive ? 'pause' : 'headphones');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        async function speakReaderPage(pageIndex, token) {
+            if (!readerSpeechActive || token !== readerSpeechToken) return;
+            if (hasPageRecordings()) {
+                playRecordedPage(pageIndex, token);
+                return;
+            }
+            if (pageIndex >= pageText.length || !pageText[pageIndex]?.trim()) {
+                stopReaderSpeech();
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            try {
+                const words = pageText[pageIndex].replace(/\\s+/g, ' ').trim().split(' ');
+                const chunks = [];
+                let chunk = '';
+                words.forEach(word => {
+                    if (chunk && (chunk + ' ' + word).length > 220) { chunks.push(chunk); chunk = word; }
+                    else chunk = chunk ? chunk + ' ' + word : word;
+                });
+                if (chunk) chunks.push(chunk);
+                for (const text of chunks) {
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.voice = readerSpeechVoices.find(voice => voice.name === readerSpeechVoiceName) || null;
+                    await new Promise((resolve, reject) => {
+                        utterance.onend = resolve;
+                        utterance.onerror = event => {
+                            if (!readerSpeechActive || token !== readerSpeechToken ||
+                                event.error === 'canceled' || event.error === 'interrupted') resolve();
+                            else reject(new Error('Speech synthesis failed: ' + event.error));
+                        };
+                        window.speechSynthesis.speak(utterance);
+                    });
+                    if (!readerSpeechActive || token !== readerSpeechToken) return;
+                }
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < pageText.length && !pageText[nextPage]?.trim()) nextPage++;
+                if (nextPage < pageText.length) speakReaderPage(nextPage, token);
+                else stopReaderSpeech();
+            } catch (error) {
+                stopReaderSpeech();
+                alert('The selected device voice could not read this page.');
+            }
+        }
+
+        function playRecordedPage(pageIndex, token) {
+            const recording = pageRecordings[pageIndex];
+            if (!recording) {
+                stopReaderSpeech();
+                alert('There is no recording for this page.');
+                return;
+            }
+            readerSpeechPage = pageIndex;
+            if (pageIndex !== currentPage && pageFlipInstance) pageFlipInstance.flip(pageIndex);
+            readerAudio.onended = () => {
+                if (!readerSpeechActive || token !== readerSpeechToken) return;
+                let nextPage = pageIndex + 1;
+                while (nextPage < pageRecordings.length && !pageRecordings[nextPage]) nextPage++;
+                if (nextPage < pageRecordings.length) {
+                    if (pageFlipInstance) pageFlipInstance.flip(nextPage);
+                    else speakReaderPage(nextPage, token);
+                } else {
+                    stopReaderSpeech();
+                }
+            };
+            readerAudio.onerror = () => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    stopReaderSpeech();
+                    alert('The page recording could not be played.');
+                }
+            };
+            readerAudio.src = recording;
+            readerAudio.play().catch(error => {
+                if (readerSpeechActive && token === readerSpeechToken) {
+                    console.error('Could not play page recording.', error);
+                    stopReaderSpeech();
+                    alert('Could not play the page recording. Tap play to try again.');
+                }
+            });
+        }
+
+        if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = populateReaderVoices;
+        populateReaderVoices();
+
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioCtx();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        function playFlipAudio() {
+            if (!soundEnabled) return;
+            if (flipAudio.readyState > 0) flipAudio.currentTime = 0;
+            flipAudio.volume = flipVolume;
+            flipAudio.play().catch(error => console.warn('Unable to play flip.mp3', error));
+        }
+
+        // Embedded Synthesizer Background Music Engine
+        function startBgm() {
+            stopBgm();
+            if (!bgmEnabled) return;
+
+            if (bgmTrack === 'custom' && customAudioData) {
+                if (!customAudioEl) {
+                    customAudioEl = new Audio(customAudioData);
+                    customAudioEl.loop = true;
+                }
+                customAudioEl.volume = bgmVolume;
+                customAudioEl.play().catch(() => {});
+                return;
+            }
+
+            try {
+                const ctx = getAudioContext();
+                bgmGainNode = ctx.createGain();
+                bgmGainNode.gain.setValueAtTime(bgmVolume * 0.15, ctx.currentTime);
+                bgmGainNode.connect(ctx.destination);
+
+                let freqs = [220, 277.18, 329.63, 440]; // A Major 7
+                if (bgmTrack === 'lofi') freqs = [174.61, 220, 261.63, 329.63];
+                if (bgmTrack === 'zen') freqs = [130.81, 196.00, 261.63, 392.00];
+
+                bgmOscillators = freqs.map((freq) => {
+                    const osc = ctx.createOscillator();
+                    const lfo = ctx.createOscillator();
+                    const lfoGain = ctx.createGain();
+
+                    osc.type = bgmTrack === 'zen' ? 'sine' : 'triangle';
+                    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+                    lfo.frequency.setValueAtTime(0.2 + Math.random() * 0.1, ctx.currentTime);
+                    lfoGain.gain.setValueAtTime(1.5, ctx.currentTime);
+                    lfo.connect(osc.frequency);
+                    lfo.start();
+
+                    osc.connect(bgmGainNode);
+                    osc.start();
+                    return { osc, lfo };
+                });
+            } catch(e) {}
+        }
+
+        function stopBgm() {
+            if (customAudioEl) {
+                customAudioEl.pause();
+                customAudioEl = null;
+            }
+            if (bgmOscillators.length) {
+                bgmOscillators.forEach(o => {
+                    try { o.osc.stop(); o.lfo.stop(); } catch(e){}
+                });
+                bgmOscillators = [];
+            }
+        }
+
+        function toggleFlipSound() {
+            soundEnabled = !soundEnabled;
+            const btn = document.getElementById('sound-btn');
+            btn.className = soundEnabled 
+                ? 'p-1.5 bg-neutral-900 text-white rounded' 
+                : 'p-1.5 bg-neutral-100 text-neutral-400 rounded';
+            if (soundEnabled) playFlipAudio();
+        }
+
+        function toggleBgmSound() {
+            bgmEnabled = !bgmEnabled;
+            const btn = document.getElementById('bgm-btn');
+            if (bgmEnabled) {
+                btn.className = 'p-1.5 bg-neutral-900 text-white rounded';
+                startBgm();
+            } else {
+                btn.className = 'p-1.5 bg-neutral-100 text-neutral-400 rounded';
+                stopBgm();
+            }
+        }
+
+        function setBgmVol(val) {
+            bgmVolume = parseFloat(val);
+            document.getElementById('bgm-vol-text').innerText = Math.round(bgmVolume * 100) + '%';
+            if (bgmGainNode && audioCtx) {
+                bgmGainNode.gain.setValueAtTime(bgmVolume * 0.15, audioCtx.currentTime);
+            }
+            if (customAudioEl) {
+                customAudioEl.volume = bgmVolume;
+            }
+        }
+
+        function toggleMenuPopover() {
+            const menuPopover = document.getElementById('menu-popover');
+            if (!menuPopover) return;
+            menuPopover.classList.toggle('hidden-menu');
+            resetAutoHideTimer();
+        }
+
+        function dismissAudioBanner() {
+            const banner = document.getElementById('audio-info-banner');
+            if (banner) banner.classList.add('hidden-banner');
+        }
+
+        function resetAutoHideTimer() {
+            const floatingBar = document.getElementById('floating-bar');
+            floatingBar.classList.remove('opacity-0');
+            floatingBar.classList.add('opacity-100');
+            clearTimeout(hideTimer);
+        }
+
+        document.addEventListener('pointerdown', (event) => {
+            const popoverElement = document.getElementById('menu-popover');
+            const target = event.target instanceof Element ? event.target : null;
+            const toggle = target && target.closest('#floating-bar > div > button');
+            if (popoverElement && target && !popoverElement.classList.contains('hidden-menu') && !popoverElement.contains(target) && !toggle) {
+                popoverElement.classList.add('hidden-menu');
+            }
+        });
+
+        const menuPanel = document.getElementById('menu-popover');
+        let menuTouchStartY = 0;
+        menuPanel.addEventListener('touchstart', (event) => {
+            menuTouchStartY = event.changedTouches[0].clientY;
+        }, { passive: true });
+        menuPanel.addEventListener('touchend', (event) => {
+            if (event.changedTouches[0].clientY - menuTouchStartY > 55) {
+                menuPanel.classList.add('hidden-menu');
+            }
+        }, { passive: true });
+
+        window.onload = function() {
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+
+            const PageFlipClass = window.St?.PageFlip || window.PageFlip?.PageFlip || window.PageFlip;
+            if(!PageFlipClass) return;
+
+            const isMobile = window.innerWidth < 768;
+            const stage = document.getElementById('stage-area');
+            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 48), 1100);
+            const stageHeight = Math.min(stage.clientHeight - (isMobile ? 110 : 48), 820);
+            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
+            let pageH = Math.floor(stageHeight);
+            if (pages.length) {
+                const firstPage = new Image();
+                firstPage.onload = () => {
+                    const aspect = firstPage.width / firstPage.height;
+                    pageH = Math.min(stageHeight, 760);
+                    pageW = Math.floor(pageH * aspect);
+                    if (!isMobile && pageW * 2 > stageWidth) {
+                        pageW = Math.floor(stageWidth / 2);
+                        pageH = Math.floor(pageW / aspect);
+                    } else if (isMobile && pageW > stageWidth) {
+                        pageW = stageWidth;
+                        pageH = Math.floor(pageW / aspect);
+                    }
+                    initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
+                };
+                firstPage.src = pages[0];
+            } else {
+                initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
+            }
+        };
+
+        function initializeExportFlip(PageFlipClass, pageW, pageH, isMobile) {
+
+            pageFlipInstance = new PageFlipClass(document.getElementById('flipbook-root'), {
+                width: pageW,
+                height: pageH,
+                size: "fixed",
+                drawShadow: true,
+                maxShadowOpacity: isMobile ? 0.22 : 0.32,
+                flippingTime: isMobile ? 420 : 550,
+                swipeDistance: isMobile ? 24 : 18,
+                usePortrait: isMobile,
+                startZIndex: 0,
+                showCover: true,
+                useMouseEvents: !isMobile,
+                clickEventForward: true,
+                mobileScrollSupport: false
+            });
+
+            const els = pages.map(src => {
+                const wrap = document.createElement('div');
+                wrap.className = 'stpageflip-page bg-white';
+                const img = document.createElement('img');
+                img.src = src;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'contain';
+                wrap.appendChild(img);
+                return wrap;
+            });
+
+            pageFlipInstance.loadFromHTML(els);
+
+            pageFlipInstance.on('flip', (e) => {
+                currentPage = e.data;
+                if (readerSpeechActive && e.data !== readerSpeechPage) {
+                    readerSpeechPage = e.data;
+                    readerSpeechToken++;
+                    window.speechSynthesis?.cancel();
+                    readerAudio.pause();
+                    readerAudio.currentTime = 0;
+                    speakReaderPage(readerSpeechPage, readerSpeechToken);
+                }
+                document.getElementById('page-counter').innerText = 'Page ' + (currentPage + 1) + ' of ' + pages.length;
+                document.getElementById('btn-prev').disabled = currentPage <= 0;
+                document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
+                playFlipAudio();
+            });
+
+            // Start background music automatically
+            try {
+                startBgm();
+            } catch(e) {}
+
+            // Fallback audio unlock handler for browsers with strict auto-play interaction requirements
+            const unlockAudio = () => {
+                getAudioContext();
+                if (bgmEnabled && !bgmOscillators.length && !customAudioEl) {
+                    startBgm();
+                }
+            };
+
+            document.addEventListener('click', unlockAudio, { once: true });
+            document.addEventListener('touchstart', unlockAudio, { once: true });
+
+            resetAutoHideTimer();
+        };
+
+        function turnPrev() { if(pageFlipInstance) pageFlipInstance.flipPrev(); }
+        function turnNext() { if(pageFlipInstance) pageFlipInstance.flipNext(); }
+        function adjustZoom(delta) {
+            zoomVal = Math.max(0.6, Math.min(2.0, zoomVal + delta));
+            document.getElementById('zoom-wrapper').style.transform = 'scale(' + zoomVal + ')';
+        }
+        function resetZoom() {
+            zoomVal = 1;
+            document.getElementById('zoom-wrapper').style.transform = 'scale(1)';
+        }
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(()=>{});
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+    <\/script>
+</body>
+</html>`;
+
+            const blob = new Blob([standaloneContent], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${state.fileName.replace('.pdf', '')}_flipdf_book.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+            closeShareModal();
+        }
+    </script>
+</body>
+</html>

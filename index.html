@@ -84,7 +84,7 @@
             <span class="font-medium text-xs tracking-tight text-neutral-800">FlipDF</span>
         </div>
         
-        <div id="nav-actions" class="flex items-center space-x-3 hidden">
+        <div id="nav-actions" class="flex items-center space-x-1.5 sm:space-x-2.5 hidden">
             <button onclick="toggleThumbnails()" class="text-xs text-neutral-600 hover:text-neutral-900 px-2.5 py-1.5 rounded transition-colors flex items-center space-x-1.5">
                 <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
                 <span>Pages</span>
@@ -98,11 +98,11 @@
             <div class="h-3.5 w-px bg-neutral-200"></div>
             <button onclick="openShareModal()" class="inline-flex items-center space-x-1.5 text-xs font-medium border border-neutral-300 hover:border-neutral-400 text-neutral-800 px-3 py-1.5 rounded transition-colors">
                 <i data-lucide="share-2" class="w-3.5 h-3.5"></i>
-                <span>Share Book</span>
+                <span class="hidden md:inline">Share Book</span><span class="md:hidden">Share</span>
             </button>
             <button onclick="exportStandaloneHTML()" class="inline-flex items-center space-x-1.5 text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded transition-colors">
                 <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                <span>Export Standalone Book</span>
+                <span class="hidden sm:inline">Export Standalone Book</span><span class="sm:hidden">Export</span>
             </button>
         </div>
     </header>
@@ -183,8 +183,9 @@
                         <button onclick="toggleReaderSpeech()" id="reader-tts-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Read this book aloud" aria-label="Read this book aloud">
                             <i data-lucide="headphones" class="w-3.5 h-3.5"></i>
                         </button>
-                        <button onclick="document.getElementById('page-recordings-input').click()" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors" title="Choose recordings in page order and export the book" aria-label="Choose recordings in page order and export the book">
+                        <button onclick="openPageRecordingStudio()" id="page-recording-btn" class="p-1.5 hover:bg-neutral-100 rounded text-neutral-600 transition-colors relative flex items-center space-x-1" title="Record or add voice narration for each page" aria-label="Record or add voice narration for each page">
                             <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                            <span id="recordings-count-badge" class="hidden text-[9px] bg-red-600 text-white font-semibold px-1.5 py-0.2 rounded-full leading-tight">0</span>
                         </button>
                         <input type="file" id="page-recordings-input" accept="audio/*" multiple class="hidden" onchange="handlePageRecordingsUpload(event)">
                         <div class="h-3 w-px bg-neutral-200 mx-1"></div>
@@ -196,12 +197,29 @@
 
                 <!-- Canvas Stage Area -->
                 <div id="stage-viewport" class="flex-1 flex items-center justify-center p-3 sm:p-6 overflow-hidden relative select-none">
-                    <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
+                    
+        <button type="button" onclick="turnPrev()" aria-label="Previous page" class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/95 hover:bg-white text-neutral-800 shadow-md border border-neutral-200/90 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer">
+            <i data-lucide="chevron-left" class="w-5 h-5 text-neutral-800"></i>
+        </button>
+        <button type="button" onclick="turnNext()" aria-label="Next page" class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/95 hover:bg-white text-neutral-800 shadow-md border border-neutral-200/90 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer">
+            <i data-lucide="chevron-right" class="w-5 h-5 text-neutral-800"></i>
+        </button>
+
+        <div id="zoom-wrapper" class="transition-transform duration-200 flex items-center justify-center w-full h-full">
                         <div id="flipbook-root" class="page-flip-container"></div>
                     </div>
                     
+                    
+                    <!-- On-Stage Quick Turn Buttons (Prominent on Mobile & Tablet) -->
+                    <button type="button" onclick="turnPrev()" aria-label="Previous page" class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/95 hover:bg-white text-neutral-800 shadow-md border border-neutral-200/90 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer">
+                        <i data-lucide="chevron-left" class="w-5 h-5 text-neutral-800"></i>
+                    </button>
+                    <button type="button" onclick="turnNext()" aria-label="Next page" class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/95 hover:bg-white text-neutral-800 shadow-md border border-neutral-200/90 flex items-center justify-center transition-all opacity-80 hover:opacity-100 active:scale-95 cursor-pointer">
+                        <i data-lucide="chevron-right" class="w-5 h-5 text-neutral-800"></i>
+                    </button>
+
                     <div id="peel-corner-hint" class="absolute bottom-6 right-6 pointer-events-none opacity-60 flex items-center space-x-1 text-[11px] font-medium text-neutral-500 bg-white/80 backdrop-blur px-2.5 py-1 rounded-full shadow-sm border border-neutral-200/80">
-                        <span>Swipe right for next, left for previous</span>
+                        <span>Tap sides or swipe anywhere to turn</span>
                         <i data-lucide="corner-down-left" class="w-3.5 h-3.5 peel-hint"></i>
                     </div>
                 </div>
@@ -283,6 +301,119 @@
         </div>
     </div>
 
+    
+    <!-- Page Voice Recording Studio Modal -->
+    <div id="recording-modal" class="fixed inset-0 bg-neutral-950/40 backdrop-blur-sm z-50 flex items-center justify-center hidden p-3 sm:p-4">
+        <div class="bg-white rounded-2xl shadow-2xl border border-neutral-200 w-full max-w-lg p-5 sm:p-6 relative max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4 shrink-0">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                        <i data-lucide="mic" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-semibold text-neutral-900">Page Voice Recordings</h3>
+                        <p class="text-[11px] text-neutral-500">Record voice for each page before exporting</p>
+                    </div>
+                </div>
+                <button onclick="closePageRecordingStudio()" class="text-neutral-400 hover:text-neutral-800 p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1 space-y-4 pr-1">
+                <!-- Page Navigation Header inside Modal -->
+                <div class="bg-neutral-50 rounded-xl p-3 border border-neutral-100 flex items-center justify-between">
+                    <button onclick="changeRecordingPage(-1)" class="p-1.5 hover:bg-white rounded text-neutral-700 transition-colors flex items-center space-x-1 text-xs border border-transparent hover:border-neutral-200">
+                        <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        <span>Prev</span>
+                    </button>
+                    <div class="text-center min-w-0 px-2">
+                        <span class="text-xs font-semibold text-neutral-900 block truncate" id="rec-page-title">Page 1</span>
+                        <div class="text-[10px] text-neutral-500 font-medium" id="rec-status-indicator">No recording</div>
+                    </div>
+                    <button onclick="changeRecordingPage(1)" class="p-1.5 hover:bg-white rounded text-neutral-700 transition-colors flex items-center space-x-1 text-xs border border-transparent hover:border-neutral-200">
+                        <span>Next</span>
+                        <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+
+                <!-- Page Preview and Recorder Controls Card -->
+                <div class="border border-neutral-200/90 rounded-xl p-4 bg-white flex flex-col sm:flex-row items-center gap-4">
+                    <!-- Page Miniature Preview -->
+                    <div class="w-24 h-32 bg-stone-50 rounded border border-neutral-200 overflow-hidden shrink-0 flex items-center justify-center shadow-xs">
+                        <img id="rec-page-preview" src="" alt="Page preview" class="w-full h-full object-contain">
+                    </div>
+
+                    <!-- Recorder Actions for Selected Page -->
+                    <div class="flex-1 w-full space-y-3 text-center sm:text-left">
+                        <!-- Recording State & Live Timer -->
+                        <div id="rec-timer-display" class="hidden items-center justify-center sm:justify-start space-x-2 text-red-600 font-mono text-sm font-semibold">
+                            <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+                            <span id="rec-time-text">00:00</span>
+                            <span class="text-[11px] font-sans text-neutral-500 font-normal">Recording audio...</span>
+                        </div>
+
+                        <!-- Audio Preview Player (when page has audio) -->
+                        <div id="rec-audio-preview-wrap" class="hidden space-y-1.5 bg-neutral-50 p-2.5 rounded-lg border border-neutral-200/80">
+                            <audio id="rec-audio-preview" controls class="w-full h-8"></audio>
+                            <div class="flex items-center justify-between text-[11px] pt-1">
+                                <span class="text-emerald-700 font-medium flex items-center space-x-1">
+                                    <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-600"></i>
+                                    <span>Recorded & ready</span>
+                                </span>
+                                <button onclick="deleteCurrentPageRecording()" class="text-red-500 hover:text-red-700 font-medium text-xs cursor-pointer">
+                                    Remove
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex flex-wrap items-center gap-2 pt-1">
+                            <button id="rec-start-btn" onclick="toggleMicRecording()" class="flex-1 min-w-[130px] py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center space-x-1.5 cursor-pointer">
+                                <i data-lucide="mic" class="w-3.5 h-3.5"></i>
+                                <span id="rec-btn-text">Record with Mic</span>
+                            </button>
+                            <label class="py-2 px-3 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs font-medium transition-colors cursor-pointer flex items-center justify-center space-x-1 border border-neutral-200">
+                                <i data-lucide="upload" class="w-3.5 h-3.5 text-neutral-500"></i>
+                                <span>Upload Audio</span>
+                                <input type="file" accept="audio/*" class="hidden" onchange="handleSinglePageAudioUpload(event)">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Batch / Bulk Upload Link -->
+                <div class="flex items-center justify-between px-1 text-[11px] text-neutral-500">
+                    <span>Batch upload:</span>
+                    <button onclick="document.getElementById('page-recordings-input').click()" class="text-neutral-800 hover:underline font-medium flex items-center space-x-1">
+                        <i data-lucide="folder-audio" class="w-3.5 h-3.5 text-neutral-600"></i>
+                        <span>Select multiple audio files in page order</span>
+                    </button>
+                </div>
+
+                <!-- All Pages Overview List -->
+                <div class="pt-2 border-t border-neutral-100">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-semibold text-neutral-800">Pages Overview</span>
+                        <span id="rec-total-badge" class="text-[11px] font-medium text-neutral-500">0 recorded</span>
+                    </div>
+                    <div id="rec-pages-list" class="space-y-1.5 max-h-40 overflow-y-auto pr-1 text-xs">
+                        <!-- Rendered dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer with Export Action -->
+            <div class="pt-3 border-t border-neutral-100 mt-3 flex items-center justify-between shrink-0">
+                <button onclick="closePageRecordingStudio()" class="py-2 px-4 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-lg text-xs font-medium transition-colors cursor-pointer">
+                    Done
+                </button>
+                <button onclick="exportStandaloneHTML()" class="py-2 px-4 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-medium transition-colors flex items-center space-x-1.5 cursor-pointer">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                    <span>Export Book with Audio</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Share Modal -->
     <div id="share-modal" class="fixed inset-0 bg-violet-950/25 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-gradient-to-br from-white via-white to-orange-50 rounded-2xl shadow-2xl shadow-violet-950/10 border border-violet-100 w-full max-w-md p-6 relative">
@@ -327,6 +458,309 @@
             fileName: 'publication.pdf',
             hasCompletionPage: false
         };
+
+        
+        // MOBILE TOUCH & SWIPE ANYWHERE GESTURE HANDLER (FULL SCREEN COVERAGE)
+        function attachTouchSwipeHandler(containerEl) {
+            if (!containerEl || containerEl._swipeAttached) return;
+            containerEl._swipeAttached = true;
+
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchStartTime = 0;
+            let isDragging = false;
+            let touchMoveCount = 0;
+
+            containerEl.addEventListener('touchstart', (e) => {
+                if (e.target.closest('button, input, select, a, textarea')) return;
+                if (e.touches.length !== 1) return;
+                
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchStartTime = Date.now();
+                isDragging = true;
+                touchMoveCount = 0;
+            }, { capture: true, passive: true });
+
+            containerEl.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                touchMoveCount++;
+            }, { capture: true, passive: true });
+
+            containerEl.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+
+                const touchEndX = e.changedTouches[0].clientX;
+                const touchEndY = e.changedTouches[0].clientY;
+                const deltaX = touchEndX - touchStartX;
+                const deltaY = touchEndY - touchStartY;
+                const deltaTime = Date.now() - touchStartTime;
+
+                // 1. Horizontal swipe anywhere across the screen: low threshold of only 20px!
+                if (Math.abs(deltaX) > Math.abs(deltaY) * 1.05 && (Math.abs(deltaX) >= 20 || (Math.abs(deltaX) >= 15 && deltaTime < 350))) {
+                    if (deltaX < 0) {
+                        // Swiped finger left -> Next Page
+                        turnNext();
+                    } else {
+                        // Swiped finger right -> Previous Page
+                        turnPrev();
+                    }
+                    return;
+                }
+
+                // 2. Tap anywhere on screen without dragging (tap left 40% -> prev, tap right 40% -> next)
+                if (touchMoveCount < 3 && Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15 && deltaTime < 400) {
+                    const rect = containerEl.getBoundingClientRect();
+                    const tapX = touchEndX - rect.left;
+                    const width = rect.width;
+
+                    if (tapX < width * 0.4) {
+                        turnPrev();
+                    } else if (tapX > width * 0.6) {
+                        turnNext();
+                    }
+                }
+            }, { capture: true, passive: true });
+
+            // Also support click tap on desktop / mouse
+            containerEl.addEventListener('click', (e) => {
+                if (e.target.closest('button, input, select, a, textarea')) return;
+                const rect = containerEl.getBoundingClientRect();
+                const tapX = e.clientX - rect.left;
+                const width = rect.width;
+                if (tapX < width * 0.35) {
+                    turnPrev();
+                } else if (tapX > width * 0.65) {
+                    turnNext();
+                }
+            }, { capture: true });
+        }
+
+        // PAGE VOICE RECORDING STUDIO LOGIC
+        let selectedRecPage = 0;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recInterval = null;
+        let recSeconds = 0;
+        let isRecording = false;
+
+        function openPageRecordingStudio() {
+            selectedRecPage = Math.max(0, Math.min(state.pages.length - 1, state.currentPage));
+            updateRecordingStudioUI();
+            document.getElementById('recording-modal').classList.remove('hidden');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function closePageRecordingStudio() {
+            if (isRecording) {
+                stopMicRecording();
+            }
+            document.getElementById('recording-modal').classList.add('hidden');
+            updateRecordingBadge();
+            updateReaderSpeechButton();
+        }
+
+        function changeRecordingPage(delta) {
+            if (isRecording) stopMicRecording();
+            selectedRecPage = Math.max(0, Math.min(state.pages.length - 1, selectedRecPage + delta));
+            updateRecordingStudioUI();
+        }
+
+        function updateRecordingBadge() {
+            const count = state.pageRecordings.filter(Boolean).length;
+            const badge = document.getElementById('recordings-count-badge');
+            if (!badge) return;
+            if (count > 0) {
+                badge.innerText = count;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function updateRecordingStudioUI() {
+            const total = state.pages.length;
+            const idx = selectedRecPage;
+            const titleEl = document.getElementById('rec-page-title');
+            const statusEl = document.getElementById('rec-status-indicator');
+            const previewImg = document.getElementById('rec-page-preview');
+            const previewWrap = document.getElementById('rec-audio-preview-wrap');
+            const audioPreview = document.getElementById('rec-audio-preview');
+            const totalBadge = document.getElementById('rec-total-badge');
+
+            if (titleEl) titleEl.innerText = "Page " + (idx + 1) + " of " + total;
+            if (previewImg && state.pages[idx]) previewImg.src = state.pages[idx];
+
+            const existingAudio = state.pageRecordings[idx];
+            if (existingAudio) {
+                if (statusEl) statusEl.innerHTML = '<span class="text-emerald-600">Audio attached</span>';
+                if (previewWrap) previewWrap.classList.remove('hidden');
+                if (audioPreview) audioPreview.src = existingAudio;
+            } else {
+                if (statusEl) statusEl.innerText = 'No audio recorded';
+                if (previewWrap) previewWrap.classList.add('hidden');
+                if (audioPreview) audioPreview.src = '';
+            }
+
+            const recordedCount = state.pageRecordings.filter(Boolean).length;
+            if (totalBadge) totalBadge.innerText = recordedCount + " of " + total + " recorded";
+
+            // Render all pages list overview
+            const listEl = document.getElementById('rec-pages-list');
+            if (listEl) {
+                listEl.innerHTML = '';
+                for (let i = 0; i < total; i++) {
+                    const isCurrent = i === idx;
+                    const hasAudio = Boolean(state.pageRecordings[i]);
+                    const item = document.createElement('div');
+                    item.className = "flex items-center justify-between p-2 rounded-lg border transition-colors cursor-pointer " + (
+                        isCurrent
+                            ? 'bg-neutral-100 border-neutral-400 font-medium'
+                            : 'bg-white border-neutral-100 hover:border-neutral-200'
+                    );
+                    item.onclick = () => {
+                        if (isRecording) stopMicRecording();
+                        selectedRecPage = i;
+                        updateRecordingStudioUI();
+                    };
+
+                    const left = document.createElement('div');
+                    left.className = 'flex items-center space-x-2';
+                    left.innerHTML = '<span class="text-xs text-neutral-800">Page ' + (i + 1) + '</span>' +
+                        (hasAudio
+                            ? '<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">Recorded</span>'
+                            : '<span class="text-[10px] text-neutral-400">No audio</span>');
+
+                    const right = document.createElement('div');
+                    right.className = 'flex items-center space-x-1.5';
+                    if (hasAudio) {
+                        right.innerHTML = '<button onclick="event.stopPropagation(); playSpecificPageAudio(' + i + ')" class="p-1 text-neutral-600 hover:text-neutral-900 rounded hover:bg-neutral-200" title="Listen"><i data-lucide="volume-2" class="w-3.5 h-3.5"></i></button>' +
+                            '<button onclick="event.stopPropagation(); deletePageAudio(' + i + ')" class="p-1 text-red-500 hover:text-red-700 rounded hover:bg-red-50" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>';
+                    } else {
+                        right.innerHTML = '<span class="text-[11px] text-neutral-400">Select to record</span>';
+                    }
+
+                    item.appendChild(left);
+                    item.appendChild(right);
+                    listEl.appendChild(item);
+                }
+            }
+
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            updateRecordingBadge();
+        }
+
+        function playSpecificPageAudio(pageIdx) {
+            const audioData = state.pageRecordings[pageIdx];
+            if (!audioData) return;
+            readerAudio.src = audioData;
+            readerAudio.play().catch(e => console.warn(e));
+        }
+
+        function deletePageAudio(pageIdx) {
+            state.pageRecordings[pageIdx] = null;
+            updateRecordingStudioUI();
+            updateRecordingBadge();
+            showToast("Recording removed from Page " + (pageIdx + 1));
+        }
+
+        function deleteCurrentPageRecording() {
+            deletePageAudio(selectedRecPage);
+        }
+
+        async function toggleMicRecording() {
+            if (isRecording) {
+                stopMicRecording();
+            } else {
+                await startMicRecording();
+            }
+        }
+
+        async function startMicRecording() {
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    showToast('Microphone access is not supported in this browser.');
+                    return;
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) audioChunks.push(e.data);
+                };
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                    stream.getTracks().forEach(track => track.stop());
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        state.pageRecordings[selectedRecPage] = reader.result;
+                        updateRecordingStudioUI();
+                        updateRecordingBadge();
+                        showToast("Recording saved for Page " + (selectedRecPage + 1));
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recSeconds = 0;
+
+                const timerWrap = document.getElementById('rec-timer-display');
+                const btnText = document.getElementById('rec-btn-text');
+                const startBtn = document.getElementById('rec-start-btn');
+                if (timerWrap) timerWrap.classList.remove('hidden');
+                if (btnText) btnText.innerText = 'Stop Recording';
+                if (startBtn) {
+                    startBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
+                    startBtn.classList.add('bg-neutral-900', 'hover:bg-neutral-800');
+                }
+
+                recInterval = setInterval(() => {
+                    recSeconds++;
+                    const m = String(Math.floor(recSeconds / 60)).padStart(2, '0');
+                    const s = String(recSeconds % 60).padStart(2, '0');
+                    const timerText = document.getElementById('rec-time-text');
+                    if (timerText) timerText.innerText = m + ":" + s;
+                }, 1000);
+            } catch (err) {
+                console.error('Microphone error', err);
+                showToast('Could not access microphone: ' + (err.message || 'permission denied'));
+            }
+        }
+
+        function stopMicRecording() {
+            if (!isRecording) return;
+            isRecording = false;
+            clearInterval(recInterval);
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            const timerWrap = document.getElementById('rec-timer-display');
+            const btnText = document.getElementById('rec-btn-text');
+            const startBtn = document.getElementById('rec-start-btn');
+            if (timerWrap) timerWrap.classList.add('hidden');
+            if (btnText) btnText.innerText = 'Record with Mic';
+            if (startBtn) {
+                startBtn.classList.remove('bg-neutral-900', 'hover:bg-neutral-800');
+                startBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+            }
+        }
+
+        function handleSinglePageAudioUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                state.pageRecordings[selectedRecPage] = e.target.result;
+                updateRecordingStudioUI();
+                updateRecordingBadge();
+                showToast("Audio uploaded for Page " + (selectedRecPage + 1));
+            };
+            reader.readAsDataURL(file);
+            event.target.value = '';
+        }
 
         let pageFlipInstance = null;
         let thumbRenderIndex = 0;
@@ -688,6 +1122,26 @@
         }
 
         window.addEventListener('DOMContentLoaded', openSharedBookFromUrl);
+        // Auto-resize flipbook on mobile rotation or window resize
+        let resizeFlipbookTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeFlipbookTimer);
+            resizeFlipbookTimer = setTimeout(() => {
+                const readerView = document.getElementById('view-reader');
+                if (readerView && !readerView.classList.contains('hidden') && state.pages.length > 0) {
+                    initStPageFlip();
+                }
+            }, 250);
+        });
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                const readerView = document.getElementById('view-reader');
+                if (readerView && !readerView.classList.contains('hidden') && state.pages.length > 0) {
+                    initStPageFlip();
+                }
+            }, 300);
+        });
+
 
         function getAudioContext() {
             if (!window.audioCtx) {
@@ -1028,34 +1482,43 @@
                 return;
             }
 
-            const isMobile = window.matchMedia('(max-width: 767px)').matches;
+            const isMobile = window.innerWidth < 768;
             const stage = document.getElementById('stage-viewport');
-            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 64), 1000);
-            const stageHeight = Math.min(stage.clientHeight - 16, 800);
-
-            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
-            let pageH = Math.floor(stageHeight);
+            const stageWidth = Math.max(280, stage.clientWidth - (isMobile ? 12 : 64));
+            const stageHeight = Math.max(360, stage.clientHeight - (isMobile ? 16 : 16));
 
             if (state.pages.length > 0) {
                 const img = new Image();
                 img.onload = () => {
                     const aspect = img.width / img.height;
-                    pageH = Math.min(stageHeight, 750);
-                    pageW = Math.floor(pageH * aspect);
-                    
-                    if (!isMobile && pageW * 2 > stageWidth) {
-                        pageW = Math.floor(stageWidth / 2);
-                        pageH = Math.floor(pageW / aspect);
-                    } else if (isMobile && pageW > stageWidth) {
-                        pageW = stageWidth;
-                        pageH = Math.floor(pageW / aspect);
+                    let pageW, pageH;
+                    if (isMobile) {
+                        // ON MOBILE: 1 BIG READABLE SINGLE PAGE THAT FILLS SCREEN
+                        pageH = Math.min(stageHeight, 820);
+                        pageW = Math.floor(pageH * aspect);
+                        if (pageW > stageWidth) {
+                            pageW = stageWidth;
+                            pageH = Math.floor(pageW / aspect);
+                        }
+                        if (pageH > stageHeight) {
+                            pageH = stageHeight;
+                            pageW = Math.floor(pageH * aspect);
+                        }
+                    } else {
+                        // ON DESKTOP & LAPTOPS: 2-PAGE BOOK SPREAD
+                        pageH = Math.min(stageHeight, 760);
+                        pageW = Math.floor(pageH * aspect);
+                        if (pageW * 2 > stageWidth) {
+                            pageW = Math.floor(stageWidth / 2);
+                            pageH = Math.floor(pageW / aspect);
+                        }
                     }
 
                     setupPageFlipInstance(PageFlipClass, pageW, pageH, isMobile);
                 };
                 img.src = state.pages[0];
             } else {
-                setupPageFlipInstance(PageFlipClass, 400, 560, isMobile);
+                setupPageFlipInstance(PageFlipClass, isMobile ? 350 : 400, isMobile ? 500 : 560, isMobile);
             }
         }
 
@@ -1072,15 +1535,15 @@
                 maxHeight: 1200,
                 drawShadow: true,
                 maxShadowOpacity: isMobile ? 0.22 : 0.32,
-                flippingTime: isMobile ? 420 : 550,
-                swipeDistance: isMobile ? 24 : 18,
+                flippingTime: isMobile ? 380 : 500,
+                swipeDistance: isMobile ? 18 : 16,
                 usePortrait: isMobile,
                 startZIndex: 0,
                 startPage: 0,
                 autoSize: true,
                 clickEventForward: true,
-                useMouseEvents: !isMobile,
-                showCover: true,
+                useMouseEvents: true,
+                showCover: !isMobile,
                 mobileScrollSupport: false
             });
 
@@ -1088,7 +1551,7 @@
             const pageElements = state.pages.map((dataUrl, idx) => {
                 const pageWrapper = document.createElement('div');
                 pageWrapper.className = 'stpageflip-page bg-white';
-                pageWrapper.setAttribute('data-density', idx === 0 || idx === state.pages.length - 1 ? 'hard' : 'soft');
+                pageWrapper.setAttribute('data-density', 'soft');
 
                 const img = document.createElement('img');
                 img.src = dataUrl;
@@ -1104,6 +1567,36 @@
             });
 
             pageFlipInstance.loadFromHTML(pageElements);
+
+            // STRICT SINGLE-PAGE PORTRAIT SPREAD ON MOBILE
+            if (isMobile && pageFlipInstance.getRender()) {
+                const render = pageFlipInstance.getRender();
+                render.calculateBoundsRect = function() {
+                    const e = this.getBlockWidth();
+                    const i = e / 2;
+                    const s = this.getBlockHeight() / 2;
+                    const n = this.setting.width / this.setting.height;
+                    let h = Math.min(this.setting.width, e);
+                    let r = Math.floor(h / n);
+                    if (r > this.getBlockHeight()) {
+                        r = this.getBlockHeight();
+                        h = Math.floor(r * n);
+                    }
+                    const o = i - h / 2 - h;
+                    this.boundsRect = {
+                        left: o,
+                        top: s - r / 2,
+                        width: 2 * h,
+                        height: r,
+                        pageWidth: h
+                    };
+                    return "portrait";
+                };
+                render.update();
+            }
+
+            // Attach touch swipe handler anywhere on stage for effortless mobile flipping
+            attachTouchSwipeHandler(document.getElementById('stage-viewport'), pageFlipInstance);
 
             pageFlipInstance.on('flip', (e) => {
                 state.currentPage = e.data;
@@ -1328,13 +1821,22 @@
             const pageRecordingsJSON = JSON.stringify(state.pageRecordings);
             let tailwindCss;
             try {
-                const stylesheet = Array.from(document.styleSheets).find(sheet =>
-                    sheet.href && new URL(sheet.href).pathname.endsWith('/styles.css')
+                let stylesheet = Array.from(document.styleSheets).find(sheet =>
+                    sheet.href && (sheet.href.includes('styles.css') || new URL(sheet.href, document.baseURI).pathname.endsWith('/styles.css'))
                 );
-                const response = await fetch(stylesheet ? stylesheet.href : 'styles.css');
-                if (!response.ok) throw new Error('Could not load the production stylesheet.');
-                tailwindCss = await response.text();
-                if (!tailwindCss.trim()) throw new Error('The production stylesheet is empty.');
+                let response = null;
+                try {
+                    response = await fetch(stylesheet ? stylesheet.href : 'styles.css');
+                } catch(e) {
+                    response = await fetch('/styles.css');
+                }
+                if (response && response.ok) {
+                    tailwindCss = await response.text();
+                }
+                if (!tailwindCss || !tailwindCss.trim()) {
+                    const fallbackResp = await fetch('/styles.css');
+                    if (fallbackResp.ok) tailwindCss = await fallbackResp.text();
+                }
             } catch (error) {
                 console.error(error);
                 showToast('Build styles.css before exporting the standalone book');
@@ -1896,28 +2398,38 @@
 
             const isMobile = window.innerWidth < 768;
             const stage = document.getElementById('stage-area');
-            const stageWidth = Math.min(stage.clientWidth - (isMobile ? 16 : 48), 1100);
-            const stageHeight = Math.min(stage.clientHeight - (isMobile ? 110 : 48), 820);
-            let pageW = Math.floor(isMobile ? stageWidth : stageWidth / 2);
-            let pageH = Math.floor(stageHeight);
+            const stageWidth = Math.max(280, stage.clientWidth - (isMobile ? 12 : 48));
+            const stageHeight = Math.max(360, stage.clientHeight - (isMobile ? 100 : 48));
             if (pages.length) {
                 const firstPage = new Image();
                 firstPage.onload = () => {
                     const aspect = firstPage.width / firstPage.height;
-                    pageH = Math.min(stageHeight, 760);
-                    pageW = Math.floor(pageH * aspect);
-                    if (!isMobile && pageW * 2 > stageWidth) {
-                        pageW = Math.floor(stageWidth / 2);
-                        pageH = Math.floor(pageW / aspect);
-                    } else if (isMobile && pageW > stageWidth) {
-                        pageW = stageWidth;
-                        pageH = Math.floor(pageW / aspect);
+                    let pageW, pageH;
+                    if (isMobile) {
+                        // ON MOBILE: 1 BIG READABLE SINGLE PAGE
+                        pageH = Math.min(stageHeight, 820);
+                        pageW = Math.floor(pageH * aspect);
+                        if (pageW > stageWidth) {
+                            pageW = stageWidth;
+                            pageH = Math.floor(pageW / aspect);
+                        }
+                        if (pageH > stageHeight) {
+                            pageH = stageHeight;
+                            pageW = Math.floor(pageH * aspect);
+                        }
+                    } else {
+                        pageH = Math.min(stageHeight, 760);
+                        pageW = Math.floor(pageH * aspect);
+                        if (pageW * 2 > stageWidth) {
+                            pageW = Math.floor(stageWidth / 2);
+                            pageH = Math.floor(pageW / aspect);
+                        }
                     }
                     initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
                 };
                 firstPage.src = pages[0];
             } else {
-                initializeExportFlip(PageFlipClass, pageW, pageH, isMobile);
+                initializeExportFlip(PageFlipClass, isMobile ? 350 : 400, isMobile ? 500 : 560, isMobile);
             }
         };
 
@@ -1929,12 +2441,12 @@
                 size: "fixed",
                 drawShadow: true,
                 maxShadowOpacity: isMobile ? 0.22 : 0.32,
-                flippingTime: isMobile ? 420 : 550,
-                swipeDistance: isMobile ? 24 : 18,
+                flippingTime: isMobile ? 380 : 500,
+                swipeDistance: isMobile ? 18 : 16,
                 usePortrait: isMobile,
                 startZIndex: 0,
-                showCover: true,
-                useMouseEvents: !isMobile,
+                showCover: !isMobile,
+                useMouseEvents: true,
                 clickEventForward: true,
                 mobileScrollSupport: false
             });
@@ -1942,6 +2454,7 @@
             const els = pages.map(src => {
                 const wrap = document.createElement('div');
                 wrap.className = 'stpageflip-page bg-white';
+                wrap.setAttribute('data-density', 'soft');
                 const img = document.createElement('img');
                 img.src = src;
                 img.style.width = '100%';
@@ -1952,6 +2465,33 @@
             });
 
             pageFlipInstance.loadFromHTML(els);
+            attachTouchSwipeHandler(document.getElementById('stage-area'), pageFlipInstance);
+
+            if (isMobile && pageFlipInstance.getRender()) {
+                const render = pageFlipInstance.getRender();
+                render.calculateBoundsRect = function() {
+                    const e = this.getBlockWidth();
+                    const i = e / 2;
+                    const s = this.getBlockHeight() / 2;
+                    const n = this.setting.width / this.setting.height;
+                    let h = Math.min(this.setting.width, e);
+                    let r = Math.floor(h / n);
+                    if (r > this.getBlockHeight()) {
+                        r = this.getBlockHeight();
+                        h = Math.floor(r * n);
+                    }
+                    const o = i - h / 2 - h;
+                    this.boundsRect = {
+                        left: o,
+                        top: s - r / 2,
+                        width: 2 * h,
+                        height: r,
+                        pageWidth: h
+                    };
+                    return "portrait";
+                };
+                render.update();
+            }
 
             pageFlipInstance.on('flip', (e) => {
                 currentPage = e.data;

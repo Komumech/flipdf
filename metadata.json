@@ -1,0 +1,6 @@
+{
+  "name": "FlipDF",
+  "description": "Convert PDF to 3D flippable books with realistic page bending, audio, export, and mobile support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
