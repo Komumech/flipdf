@@ -1,0 +1,437 @@
+import { FlipbookPage, DocumentInfo, FlipbookSettings } from '../types';
+
+export function exportStandaloneFlipbook(
+  info: DocumentInfo,
+  pages: FlipbookPage[],
+  settings: FlipbookSettings
+): void {
+  const pagesData = pages.map((p) => p.dataUrl);
+  const pageAudioData = pages.map((p) => p.audioUrl || null);
+  const flipAudioB64 = (typeof window !== 'undefined' && (window as unknown as { FLIP_SOUND_B64?: string }).FLIP_SOUND_B64) || 'flip.mp3';
+
+  const standaloneHTML = `<!DOCTYPE html>
+<html lang="en" class="h-full select-none">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>${info.title} - FlipDF Interactive Book</title>
+  <script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      background-color: #f7f7f8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #0f172a;
+      touch-action: none;
+    }
+    .page-stage {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      touch-action: none;
+      padding: 0.5rem 0.5rem 4rem 0.5rem;
+    }
+    .page-flip-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: auto;
+      position: relative;
+    }
+    .stpageflip-page, .page-flip-container canvas {
+      background-color: #ffffff !important;
+    }
+    .stpageflip-page {
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      transform-style: preserve-3d;
+      isolation: isolate;
+      background-image: linear-gradient(90deg, rgba(112,83,56,0.05), transparent 8%, transparent 92%, rgba(112,83,56,0.05)) !important;
+    }
+    .stpageflip-page::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to right, rgba(63,45,31,0.08) 0%, rgba(63,45,31,0.02) 3%, transparent 12%, transparent 88%, rgba(63,45,31,0.02) 97%, rgba(63,45,31,0.08) 100%);
+      pointer-events: none;
+      z-index: 10;
+    }
+    /* Floating Bottom Action Bar - Single-Line Guarantee */
+    .floating-bar {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.85);
+      border-radius: 9999px;
+      padding: 0.35rem 0.65rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+      z-index: 50;
+      white-space: nowrap !important;
+      max-width: calc(100vw - 1.5rem);
+    }
+    .floating-bar * {
+      white-space: nowrap !important;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      outline: none;
+      cursor: pointer;
+      padding: 0.45rem;
+      border-radius: 9999px;
+      color: #475569;
+      transition: all 0.15s ease;
+      white-space: nowrap !important;
+    }
+    .btn:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    .btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    .btn.active {
+      background: #0f172a;
+      color: #ffffff;
+    }
+    .page-indicator {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: #334155;
+      padding: 0 0.45rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap !important;
+      display: inline-block;
+      letter-spacing: -0.01em;
+      user-select: none;
+    }
+    /* Side Arrow Turn Buttons - Visible only on large screens */
+    .turn-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2.75rem;
+      height: 2.75rem;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #1e293b;
+      z-index: 30;
+      transition: all 0.15s ease;
+    }
+    .turn-btn:hover { background: #ffffff; box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+    .turn-btn:active { transform: translateY(-50%) scale(0.95); }
+    .turn-btn-prev { left: 1.5rem; }
+    .turn-btn-next { right: 1.5rem; }
+
+    /* On mobile and tablet, completely hide side buttons so they never block or overlap page text */
+    @media (max-width: 768px) {
+      .turn-btn {
+        display: none !important;
+      }
+      .page-stage {
+        padding: 0.25rem 0.25rem 4.5rem 0.25rem !important;
+      }
+      .floating-bar {
+        bottom: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        gap: 0.25rem;
+      }
+      .page-indicator {
+        font-size: 0.75rem;
+        padding: 0 0.35rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-stage" id="stage-viewport">
+    <button class="turn-btn turn-btn-prev" onclick="turnPrev()" aria-label="Previous page">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <button class="turn-btn turn-btn-next" onclick="turnNext()" aria-label="Next page">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div id="flipbook-root" class="page-flip-container"></div>
+  </div>
+
+  <!-- Bottom Floating Reader Bar with strict single-line text -->
+  <div class="floating-bar">
+    <button class="btn" onclick="turnPrev()" id="btn-prev" title="Previous page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <span class="page-indicator" id="page-counter">1 / ${pagesData.length}</span>
+    <button class="btn" onclick="turnNext()" id="btn-next" title="Next page">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+    <div style="width: 1px; height: 16px; background: #e2e8f0; margin: 0 2px;"></div>
+    <!-- Sound Toggle -->
+    <button class="btn ${settings.soundEnabled ? 'active' : ''}" id="sound-btn" onclick="toggleSound()" title="Toggle Flip Sound">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+    </button>
+    <!-- Background Music -->
+    <button class="btn" id="bgm-btn" onclick="toggleBgm()" title="Toggle Background Music">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </button>
+    <!-- Page Narration Toggle -->
+    <button class="btn" id="narration-btn" onclick="toggleNarration()" title="Play page audio narration">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
+    </button>
+  </div>
+
+  <script>
+    const pages = ${JSON.stringify(pagesData)};
+    const pageAudios = ${JSON.stringify(pageAudioData)};
+    const flipSoundB64 = ${JSON.stringify(flipAudioB64)};
+    
+    let pageFlipInstance = null;
+    let currentPage = 0;
+    let soundEnabled = ${settings.soundEnabled};
+    let bgmEnabled = false;
+    let currentNarration = null;
+
+    const flipAudio = new Audio(flipSoundB64);
+    flipAudio.preload = 'auto';
+
+    function playFlipSound() {
+      if (!soundEnabled) return;
+      try {
+        flipAudio.currentTime = 0;
+        flipAudio.volume = 0.6;
+        flipAudio.play().catch(function(){});
+      } catch(e){}
+    }
+
+    function playNarrationForPage(idx) {
+      if (currentNarration) {
+        currentNarration.pause();
+        currentNarration = null;
+      }
+      const audioUrl = pageAudios[idx];
+      const btn = document.getElementById('narration-btn');
+      if (!audioUrl) {
+        if (btn) btn.classList.remove('active');
+        return;
+      }
+      currentNarration = new Audio(audioUrl);
+      currentNarration.onended = function() {
+        if (btn) btn.classList.remove('active');
+      };
+      currentNarration.play().then(function() {
+        if (btn) btn.classList.add('active');
+      }).catch(function() {
+        if (btn) btn.classList.remove('active');
+      });
+    }
+
+    function toggleNarration() {
+      if (currentNarration && !currentNarration.paused) {
+        currentNarration.pause();
+        document.getElementById('narration-btn')?.classList.remove('active');
+      } else {
+        playNarrationForPage(currentPage);
+      }
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      document.getElementById('sound-btn')?.classList.toggle('active', soundEnabled);
+      if (soundEnabled) playFlipSound();
+    }
+
+    // Synthesizer background music
+    let audioCtx = null;
+    let bgmGain = null;
+    let bgmOscs = [];
+    function toggleBgm() {
+      bgmEnabled = !bgmEnabled;
+      const btn = document.getElementById('bgm-btn');
+      if (bgmEnabled) {
+        if (btn) btn.classList.add('active');
+        startSynthesizerBgm();
+      } else {
+        if (btn) btn.classList.remove('active');
+        stopSynthesizerBgm();
+      }
+    }
+
+    function startSynthesizerBgm() {
+      stopSynthesizerBgm();
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioCtx();
+        bgmGain = audioCtx.createGain();
+        bgmGain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+        bgmGain.connect(audioCtx.destination);
+        [220, 277.18, 329.63, 440].forEach(function(freq) {
+          const osc = audioCtx.createOscillator();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          osc.connect(bgmGain);
+          osc.start();
+          bgmOscs.push(osc);
+        });
+      } catch(e){}
+    }
+
+    function stopSynthesizerBgm() {
+      bgmOscs.forEach(function(o){ try{ o.stop(); }catch(e){} });
+      bgmOscs = [];
+    }
+
+    function turnPrev() { if (pageFlipInstance) pageFlipInstance.flipPrev(); }
+    function turnNext() { if (pageFlipInstance) pageFlipInstance.flipNext(); }
+
+    // Touch & swipe anywhere gesture handler (effortless thumb swipe on mobile)
+    function attachTouchSwipe(container) {
+      let startX = 0, startY = 0, startTime = 0, isTouch = false;
+      container.addEventListener('touchstart', function(e) {
+        if (e.target.closest('button, .floating-bar')) return;
+        if (e.touches.length !== 1) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startTime = Date.now();
+        isTouch = true;
+      }, { passive: true });
+
+      container.addEventListener('touchend', function(e) {
+        if (!isTouch) return;
+        isTouch = false;
+        const dx = e.changedTouches[0].clientX - startX;
+        const dy = e.changedTouches[0].clientY - startY;
+        const dt = Date.now() - startTime;
+        if (Math.abs(dx) > Math.abs(dy) * 0.85 && (Math.abs(dx) >= 18 || (Math.abs(dx) >= 12 && dt < 350))) {
+          if (dx < 0) turnNext();
+          else turnPrev();
+          return;
+        }
+        if (Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 400) {
+          const rect = container.getBoundingClientRect();
+          const tapX = e.changedTouches[0].clientX - rect.left;
+          if (tapX < rect.width * 0.35) turnPrev();
+          else if (tapX > rect.width * 0.65) turnNext();
+        }
+      }, { passive: true });
+    }
+
+    window.onload = function() {
+      const PageFlipClass = window.St?.PageFlip || window.PageFlip?.PageFlip || window.PageFlip;
+      if (!PageFlipClass) return;
+
+      const isMobile = window.innerWidth < 768;
+      const stage = document.getElementById('stage-viewport');
+
+      // Fill mobile screen generously so text is large and clear
+      const availW = isMobile ? Math.max(300, window.innerWidth - 12) : Math.max(300, stage.clientWidth - 48);
+      const availH = isMobile ? Math.max(400, window.innerHeight - 75) : Math.max(360, stage.clientHeight - 64);
+
+      const firstImg = new Image();
+      firstImg.onload = function() {
+        const aspect = (firstImg.width && firstImg.height) ? (firstImg.width / firstImg.height) : (1 / 1.38);
+        let pageW, pageH;
+        if (isMobile) {
+          // In mobile portrait mode: maximize page width and height
+          pageW = Math.floor(availW);
+          pageH = Math.floor(pageW / aspect);
+          if (pageH > availH) {
+            pageH = availH;
+            pageW = Math.floor(pageH * aspect);
+          }
+        } else {
+          // Dual spread on desktop / laptop
+          pageH = Math.min(availH, 800);
+          pageW = Math.floor(pageH * aspect);
+          if (pageW * 2 > availW) {
+            pageW = Math.floor(availW / 2);
+            pageH = Math.floor(pageW / aspect);
+          }
+        }
+
+        pageFlipInstance = new PageFlipClass(document.getElementById('flipbook-root'), {
+          width: pageW,
+          height: pageH,
+          size: "fixed",
+          drawShadow: true,
+          maxShadowOpacity: isMobile ? 0.2 : 0.3,
+          flippingTime: isMobile ? 320 : 450,
+          swipeDistance: isMobile ? 12 : 16,
+          usePortrait: isMobile,
+          startZIndex: 0,
+          showCover: !isMobile,
+          useMouseEvents: true,
+          clickEventForward: true,
+          mobileScrollSupport: false
+        });
+
+        const els = pages.map(function(src) {
+          const wrap = document.createElement('div');
+          wrap.className = 'stpageflip-page';
+          wrap.setAttribute('data-density', 'soft');
+          const img = document.createElement('img');
+          img.src = src;
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'contain';
+          wrap.appendChild(img);
+          return wrap;
+        });
+
+        pageFlipInstance.loadFromHTML(els);
+        attachTouchSwipe(document.getElementById('stage-viewport'));
+
+        pageFlipInstance.on('flip', function(e) {
+          currentPage = e.data;
+          document.getElementById('page-counter').innerText = (currentPage + 1) + ' / ' + pages.length;
+          document.getElementById('btn-prev').disabled = currentPage <= 0;
+          document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
+          playFlipSound();
+          if (pageAudios[currentPage]) {
+            playNarrationForPage(currentPage);
+          } else if (currentNarration) {
+            currentNarration.pause();
+            document.getElementById('narration-btn')?.classList.remove('active');
+          }
+        });
+      };
+      firstImg.src = pages[0];
+
+      // Unlock audio on initial user touch
+      const unlock = function() {
+        try { flipAudio.volume = 0.6; flipAudio.play().then(function(){ flipAudio.pause(); flipAudio.currentTime = 0; }).catch(function(){}); } catch(e){}
+      };
+      document.addEventListener('touchstart', unlock, { once: true });
+      document.addEventListener('click', unlock, { once: true });
+    };
+  </script>
+</body>
+</html>`;
+
+  const blob = new Blob([standaloneHTML], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${info.title.replace(/\s+/g, '_')}_flipdf_book.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

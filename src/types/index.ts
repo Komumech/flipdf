@@ -3,6 +3,7 @@ export interface FlipbookPage {
   dataUrl: string;
   width: number;
   height: number;
+  audioUrl?: string; // DataURL or audio URL for per-page narration
 }
 
 export interface DocumentInfo {
@@ -15,8 +16,14 @@ export interface DocumentInfo {
 
 export type ViewMode = 'auto' | 'dual' | 'single';
 
+export type BgmTrack = 'none' | 'ambient' | 'lofi' | 'zen' | 'custom';
+
 export interface FlipbookSettings {
   viewMode: ViewMode;
   soundEnabled: boolean;
   zoom: number; // 0.8 to 1.6
+  bgmTrack: BgmTrack;
+  bgmVolume: number;
+  customAudioUrl?: string;
+  autoPlayNarration: boolean;
 }

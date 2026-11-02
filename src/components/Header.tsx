@@ -6,39 +6,44 @@ import {
   VolumeX,
   Maximize2,
   Minimize2,
-  Columns,
-  Square,
+  Music2,
+  Download,
+  Mic,
 } from 'lucide-react';
-import { ViewMode } from '../types';
+import { BgmTrack } from '../types';
 
 interface HeaderProps {
   documentTitle: string;
   totalPages: number;
   currentPage: number;
-  viewMode: ViewMode;
-  isDualSpread: boolean;
   soundEnabled: boolean;
+  bgmTrack: BgmTrack;
+  audioRecordedCount: number;
   isFullscreen: boolean;
   onToggleSound: () => void;
+  onToggleBgm: () => void;
+  onOpenPageAudio: () => void;
   onToggleFullscreen: () => void;
-  onChangeViewMode: (mode: ViewMode) => void;
   onOpenUpload: () => void;
   onOpenSamples: () => void;
+  onExportBook: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   documentTitle,
   totalPages,
   currentPage,
-  viewMode,
-  isDualSpread,
   soundEnabled,
+  bgmTrack,
+  audioRecordedCount,
   isFullscreen,
   onToggleSound,
+  onToggleBgm,
+  onOpenPageAudio,
   onToggleFullscreen,
-  onChangeViewMode,
   onOpenUpload,
   onOpenSamples,
+  onExportBook,
 }) => {
   return (
     <header className="w-full bg-[#FBFBFA]/95 backdrop-blur-md border-b border-neutral-200/60 sticky top-0 z-30 transition-all">
@@ -46,11 +51,11 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Brand & Document Name */}
         <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-base font-semibold tracking-tight text-slate-900">
-              Folio
-            </span>
-            <span className="hidden sm:inline-block text-xs uppercase tracking-widest text-slate-400 font-medium">
-              / Flipbook
+            <div className="w-7 h-7 rounded-lg bg-neutral-900 text-white flex items-center justify-center font-bold text-xs tracking-wider">
+              F
+            </div>
+            <span className="text-sm font-semibold tracking-tight text-slate-900">
+              FlipDF
             </span>
           </div>
 
@@ -75,50 +80,56 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Global Action Toolbar */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {/* Switch Sample Publications */}
+          {/* Sample Publications */}
           <button
             onClick={onOpenSamples}
             className="hidden lg:inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
             title="Browse sample publications"
           >
             <BookOpen className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <span>Publications</span>
+            <span>Samples</span>
           </button>
 
-          {/* Layout Mode (Dual vs Single) */}
-          <div className="hidden sm:flex items-center bg-stone-100 p-0.5 rounded-xl border border-neutral-200/70">
-            <button
-              type="button"
-              onClick={() => onChangeViewMode('dual')}
-              title="Dual-page spread view"
-              className={`p-1.5 text-xs rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'dual' || (viewMode === 'auto' && isDualSpread)
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Columns className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeViewMode('single')}
-              title="Single-page view"
-              className={`p-1.5 text-xs rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'single' || (viewMode === 'auto' && !isDualSpread)
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Square className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {/* Page Audio Drawer Button */}
+          <button
+            type="button"
+            onClick={onOpenPageAudio}
+            className={`inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
+              audioRecordedCount > 0
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                : 'bg-white text-slate-700 border-neutral-200/80 hover:border-slate-400'
+            }`}
+            title="Manage page audio narrations"
+          >
+            <Mic className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+            <span className="hidden xs:inline whitespace-nowrap">Page Audio</span>
+            {audioRecordedCount > 0 && (
+              <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-semibold px-1.5 py-0.2 rounded-full">
+                {audioRecordedCount}
+              </span>
+            )}
+          </button>
 
-          {/* Audio Toggle */}
+          {/* Background Music Toggle */}
+          <button
+            type="button"
+            onClick={onToggleBgm}
+            title={bgmTrack !== 'none' ? 'Mute background music' : 'Play ambient background music'}
+            className={`p-2 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
+              bgmTrack !== 'none'
+                ? 'bg-neutral-900 text-white border-neutral-900'
+                : 'bg-white text-slate-600 border-neutral-200/80 hover:border-slate-400'
+            }`}
+          >
+            <Music2 className="w-4 h-4 shrink-0" />
+          </button>
+
+          {/* Page Turn Sound Toggle */}
           <button
             type="button"
             onClick={onToggleSound}
-            title={soundEnabled ? 'Mute page turn audio' : 'Enable tactile page turn sound'}
-            className="p-2 sm:py-2 sm:px-2.5 text-xs font-medium text-slate-600 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
+            title={soundEnabled ? 'Mute page turn sound' : 'Enable flip sound (flip.mp3)'}
+            className="p-2 text-xs font-medium text-slate-600 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
           >
             {soundEnabled ? (
               <Volume2 className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -141,13 +152,24 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
+          {/* Export Standalone HTML Book */}
+          <button
+            type="button"
+            onClick={onExportBook}
+            className="hidden sm:inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium text-slate-800 bg-white border border-neutral-300 hover:border-neutral-400 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
+            title="Download standalone self-contained flipbook"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+            <span>Export Book</span>
+          </button>
+
           {/* Upload PDF CTA */}
           <button
             onClick={onOpenUpload}
-            className="flex items-center gap-1.5 py-2 px-3 sm:px-4 text-xs font-medium text-emerald-950 bg-emerald-50/90 hover:bg-emerald-100/90 border border-emerald-200/80 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
+            className="flex items-center gap-1.5 py-2 px-3 sm:px-4 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer shadow-xs"
             title="Upload any PDF to convert to a flipbook"
           >
-            <Upload className="w-3.5 h-3.5 text-emerald-800 shrink-0" />
+            <Upload className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden xs:inline">Upload PDF</span>
             <span className="xs:hidden">Upload</span>
           </button>

@@ -24,9 +24,12 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
   const [isFlipping, setIsFlipping] = useState(false);
   const [flipDirection, setFlipDirection] = useState<'next' | 'prev' | null>(null);
 
-  // Touch tracking for mobile swipe gestures
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
+  // Live touch & mouse drag tracking to follow finger/cursor
+  const [isPointerDown, setIsPointerDown] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0); // px horizontal movement
+  const startXRef = useRef<number | null>(null);
+  const startYRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   // Measure container size on mount and resize
   useEffect(() => {
@@ -48,11 +51,6 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
   const totalPages = pages.length;
 
   // Determine which page(s) to show
-  // In dual spread:
-  // Page 1 is cover (shown on right page, left page empty)
-  // Page 2 & 3, Page 4 & 5, etc.
-  // If currentPage is even (e.g. 2), left is 2, right is 3
-  // If currentPage is odd and > 1 (e.g. 3), left is 2, right is 3
   let leftPageNum: number | null = null;
   let rightPageNum: number | null = null;
 
@@ -65,7 +63,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
       rightPageNum = leftPageNum + 1 <= totalPages ? leftPageNum + 1 : null;
     }
   } else {
-    // Single page mode
+    // Single page mode on mobile / tablet portrait
     leftPageNum = null;
     rightPageNum = currentPage;
   }
@@ -73,7 +71,6 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
   const leftPage = leftPageNum ? pages.find((p) => p.pageNumber === leftPageNum) : null;
   const rightPage = rightPageNum ? pages.find((p) => p.pageNumber === rightPageNum) : null;
 
-  // Navigation handlers
   const canGoPrev = currentPage > 1;
   const canGoNext = isDualSpread
     ? (rightPageNum ? rightPageNum < totalPages : false) || (currentPage === 1 && totalPages > 1)
@@ -95,6 +92,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
       onPageChange(targetPage);
       setIsFlipping(false);
       setFlipDirection(null);
+      setDragOffset(0);
     }, 280);
   }, [canGoPrev, isFlipping, isDualSpread, currentPage, onPageChange, onPlaySound]);
 
@@ -114,6 +112,7 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
       onPageChange(targetPage);
       setIsFlipping(false);
       setFlipDirection(null);
+      setDragOffset(0);
     }, 280);
   }, [canGoNext, isFlipping, isDualSpread, currentPage, totalPages, onPageChange, onPlaySound]);
 
@@ -141,48 +140,134 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleNext, handlePrev, currentPage, totalPages, onPageChange]);
 
-  // Touch Swipe Handlers for mobile & tablet
+  // Interactive Touch handlers (follows finger anywhere on screen seamlessly)
   const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
+    if (e.touches.length !== 1 || isFlipping) return;
+    startXRef.current = e.touches[0].clientX;
+    startYRef.current = e.touches[0].clientY;
+    startTimeRef.current = Date.now();
+    setIsPointerDown(true);
+    setDragOffset(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPointerDown || startXRef.current === null || startYRef.current === null) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    const dx = currentX - startXRef.current;
+    const dy = currentY - startYRef.current;
+
+    // Follow horizontal swipe if primarily horizontal
+    if (Math.abs(dx) > Math.abs(dy) * 0.75) {
+      setDragOffset(dx);
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+    if (!isPointerDown || startXRef.current === null || startYRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - startXRef.current;
+    const deltaY = e.changedTouches[0].clientY - startYRef.current;
+    const deltaTime = Date.now() - startTimeRef.current;
 
-    // Horizontal swipe threshold: at least 40px, and more horizontal than vertical
-    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+    setIsPointerDown(false);
+
+    // Effortless threshold: 18px swipe or 12px fast flick flips in the direction of the finger
+    if (
+      Math.abs(deltaX) > Math.abs(deltaY) * 0.85 &&
+      (Math.abs(deltaX) >= 18 || (Math.abs(deltaX) >= 12 && deltaTime < 350))
+    ) {
+      if (deltaX < 0) {
+        // Swiped finger to the left -> flip forward
+        handleNext();
+      } else {
+        // Swiped finger to the right -> flip backward
+        handlePrev();
+      }
+    } else if (Math.abs(deltaX) < 12 && Math.abs(deltaY) < 12 && deltaTime < 400) {
+      // Tap detected: left 35% flips prev, right 35% flips next
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const tapX = e.changedTouches[0].clientX - rect.left;
+        if (tapX < rect.width * 0.35) {
+          handlePrev();
+        } else if (tapX > rect.width * 0.65) {
+          handleNext();
+        }
+      }
+    }
+
+    setDragOffset(0);
+    startXRef.current = null;
+    startYRef.current = null;
+  };
+
+  const handleTouchCancel = () => {
+    setIsPointerDown(false);
+    setDragOffset(0);
+    startXRef.current = null;
+    startYRef.current = null;
+  };
+
+  // Interactive Desktop Mouse Drag Handler
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0 || isFlipping) return;
+    startXRef.current = e.clientX;
+    startYRef.current = e.clientY;
+    startTimeRef.current = Date.now();
+    setIsPointerDown(true);
+    setDragOffset(0);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPointerDown || startXRef.current === null) return;
+    const dx = e.clientX - startXRef.current;
+    setDragOffset(dx);
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isPointerDown || startXRef.current === null) return;
+    const deltaX = e.clientX - startXRef.current;
+    const deltaTime = Date.now() - startTimeRef.current;
+    setIsPointerDown(false);
+
+    if (Math.abs(deltaX) >= 20 || (Math.abs(deltaX) >= 12 && deltaTime < 300)) {
       if (deltaX < 0) {
         handleNext();
       } else {
         handlePrev();
       }
+    } else if (Math.abs(deltaX) < 10) {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        if (clickX < rect.width * 0.35) {
+          handlePrev();
+        } else if (clickX > rect.width * 0.65) {
+          handleNext();
+        }
+      }
     }
 
-    touchStartX.current = null;
-    touchStartY.current = null;
+    setDragOffset(0);
+    startXRef.current = null;
+    startYRef.current = null;
   };
 
-  // Compute page dimensions to perfectly fit the viewport
-  // Standard A4 / Book aspect ratio is around 1:1.35 to 1:1.41
+  // Compute page dimensions - maximize on mobile so text is large and clear
   const pageAspect = 1 / 1.38;
-  const paddingH = containerSize.width < 640 ? 16 : containerSize.width < 1024 ? 32 : 48;
-  const paddingV = containerSize.height < 600 ? 16 : 32;
+  const isMobile = containerSize.width < 768;
+  const paddingH = isMobile ? 8 : containerSize.width < 1024 ? 20 : 40;
+  const paddingV = isMobile ? 8 : 20;
 
   const availW = Math.max(280, containerSize.width - paddingH * 2);
-  const availH = Math.max(340, containerSize.height - paddingV * 2);
+  const availH = Math.max(380, containerSize.height - paddingV * 2);
 
   let singlePageW: number;
   let singlePageH: number;
 
   if (isDualSpread) {
-    // 2 pages side by side
     const maxBookW = availW;
     const maxBookH = availH;
-
-    // Calculate height constrained by width
     let testH = (maxBookW / 2) / pageAspect;
     let testW = maxBookW / 2;
 
@@ -194,33 +279,50 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
     singlePageW = Math.round(testW * zoom);
     singlePageH = Math.round(testH * zoom);
   } else {
-    // Single page
-    let testH = availW / pageAspect;
+    // Single page mode on mobile / tablet portrait (fills viewport generously)
     let testW = availW;
+    let testH = Math.round(testW / pageAspect);
 
     if (testH > availH) {
       testH = availH;
-      testW = testH * pageAspect;
+      testW = Math.round(testH * pageAspect);
     }
 
     singlePageW = Math.round(testW * zoom);
     singlePageH = Math.round(testH * zoom);
   }
 
+  // Calculate live 3D curl rotation following finger/cursor
+  const liveAngle = isPointerDown
+    ? Math.max(-28, Math.min(28, (dragOffset / (singlePageW || 300)) * 40))
+    : 0;
+
   return (
     <div
       ref={containerRef}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      className={`relative flex-1 w-full min-h-[320px] flex items-center justify-center p-3 sm:p-6 md:p-8 select-none ${
+      onTouchCancel={handleTouchCancel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={() => {
+        if (isPointerDown) {
+          setIsPointerDown(false);
+          setDragOffset(0);
+          startXRef.current = null;
+        }
+      }}
+      className={`relative flex-1 w-full min-h-[320px] flex items-center justify-center p-1 sm:p-6 md:p-8 select-none touch-none ${
         zoom > 1.0 ? 'overflow-auto' : 'overflow-hidden'
       }`}
     >
       {/* Outer book wrapper with 3D perspective for realistic flip */}
       <div
-        className="relative flex items-center justify-center transition-transform duration-200"
+        className="relative flex items-center justify-center"
         style={{
-          perspective: '2200px',
+          perspective: '2400px',
         }}
       >
         {isDualSpread ? (
@@ -236,8 +338,18 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
               style={{
                 width: `${singlePageW}px`,
                 height: `${singlePageH}px`,
+                transformOrigin: 'right center',
+                transform:
+                  isFlipping && flipDirection === 'prev'
+                    ? 'rotateY(24deg) scale(0.98)'
+                    : isPointerDown && liveAngle > 0
+                    ? `rotateY(${liveAngle}deg) scale(${1 - liveAngle * 0.001})`
+                    : 'rotateY(0deg)',
+                transition: isPointerDown
+                  ? 'none'
+                  : 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
               }}
-              className={`relative bg-white rounded-l-md border-y border-l border-neutral-200/80 shadow-sm flex items-center justify-center overflow-hidden transition-all duration-200 ${
+              className={`relative bg-white rounded-l-md border-y border-l border-neutral-200/80 shadow-md flex items-center justify-center overflow-hidden transition-all duration-200 ${
                 canGoPrev ? 'cursor-pointer hover:brightness-[0.99]' : ''
               } ${
                 leftPageNum === null ? 'bg-stone-100/70 border-r-0 border-neutral-200/50' : ''
@@ -248,12 +360,12 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
                   <img
                     src={leftPage.dataUrl}
                     alt={`Page ${leftPage.pageNumber}`}
-                    className="w-full h-full object-contain pointer-events-none"
+                    className="w-full h-full object-contain pointer-events-none bg-white"
                     loading="eager"
                   />
-                  {/* Subtle right-edge spine shadow */}
+                  {/* Spine shadow */}
                   <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/8 via-black/2 to-transparent pointer-events-none" />
-                  
+
                   {/* Page number footer */}
                   <div className="absolute bottom-2 left-3 text-[10px] text-slate-400 font-mono bg-white/80 px-1 rounded">
                     {leftPage.pageNumber}
@@ -261,13 +373,13 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
                 </>
               ) : (
                 <div className="text-center p-6 text-slate-300 font-light text-xs tracking-wider uppercase">
-                  Inside Cover
+                  Cover
                 </div>
               )}
 
-              {/* Turn left affordance on hover */}
+              {/* Hover turn affordance on desktop */}
               {canGoPrev && leftPage && (
-                <div className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 border border-neutral-200/60 rounded-full text-slate-600 opacity-0 hover:opacity-100 transition-opacity duration-150">
+                <div className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 border border-neutral-200/60 rounded-full text-slate-600 opacity-0 hover:opacity-100 transition-opacity duration-150">
                   <ChevronLeft className="w-4 h-4" />
                 </div>
               )}
@@ -290,13 +402,15 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
                 transformOrigin: 'left center',
                 transform:
                   isFlipping && flipDirection === 'next'
-                    ? 'rotateY(-24deg)'
-                    : isFlipping && flipDirection === 'prev'
-                    ? 'rotateY(16deg)'
+                    ? 'rotateY(-24deg) scale(0.98)'
+                    : isPointerDown && liveAngle < 0
+                    ? `rotateY(${liveAngle}deg) scale(${1 + liveAngle * 0.001})`
                     : 'rotateY(0deg)',
-                transition: 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+                transition: isPointerDown
+                  ? 'none'
+                  : 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
               }}
-              className={`relative bg-white rounded-r-md border-y border-r border-neutral-200/80 shadow-sm flex items-center justify-center overflow-hidden transition-all duration-200 ${
+              className={`relative bg-white rounded-r-md border-y border-r border-neutral-200/80 shadow-md flex items-center justify-center overflow-hidden transition-all duration-200 ${
                 canGoNext ? 'cursor-pointer hover:brightness-[0.99]' : ''
               } ${
                 rightPageNum === null ? 'bg-stone-100/70 border-l-0 border-neutral-200/50' : ''
@@ -307,10 +421,10 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
                   <img
                     src={rightPage.dataUrl}
                     alt={`Page ${rightPage.pageNumber}`}
-                    className="w-full h-full object-contain pointer-events-none"
+                    className="w-full h-full object-contain pointer-events-none bg-white"
                     loading="eager"
                   />
-                  {/* Subtle left-edge spine shadow */}
+                  {/* Spine shadow */}
                   <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-black/8 via-black/2 to-transparent pointer-events-none" />
 
                   {/* Page number footer */}
@@ -324,87 +438,65 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
                 </div>
               )}
 
-              {/* Turn right affordance on hover */}
+              {/* Hover turn affordance on desktop */}
               {canGoNext && rightPage && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 border border-neutral-200/60 rounded-full text-slate-600 opacity-0 hover:opacity-100 transition-opacity duration-150">
+                <div className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/80 border border-neutral-200/60 rounded-full text-slate-600 opacity-0 hover:opacity-100 transition-opacity duration-150">
                   <ChevronRight className="w-4 h-4" />
                 </div>
               )}
             </div>
           </div>
         ) : (
-          /* SINGLE-PAGE VIEW (Mobile / Tablet Portrait / Explicit Single) */
+          /* SINGLE-PAGE VIEW (Mobile / Tablet Portrait - 1 Big Clear Page without obstructive buttons) */
           <div
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              if (clickX < rect.width * 0.35) {
-                handlePrev();
-              } else if (clickX > rect.width * 0.65) {
-                handleNext();
-              }
-            }}
             style={{
               width: `${singlePageW}px`,
               height: `${singlePageH}px`,
+              transformOrigin:
+                isPointerDown
+                  ? liveAngle < 0
+                    ? 'left center'
+                    : 'right center'
+                  : flipDirection === 'next'
+                  ? 'left center'
+                  : 'right center',
               transform:
                 isFlipping && flipDirection === 'next'
-                  ? 'translateX(-12px)'
+                  ? 'rotateY(-22deg) translateX(-10px) scale(0.98)'
                   : isFlipping && flipDirection === 'prev'
-                  ? 'translateX(12px)'
-                  : 'translateX(0)',
-              transition: 'transform 240ms ease-out',
+                  ? 'rotateY(22deg) translateX(10px) scale(0.98)'
+                  : isPointerDown
+                  ? `rotateY(${liveAngle}deg) translateX(${dragOffset * 0.12}px)`
+                  : 'rotateY(0deg) translateX(0) scale(1)',
+              transition: isPointerDown
+                ? 'none'
+                : 'transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
             }}
-            className="relative bg-white rounded-xl border border-neutral-200/80 shadow-xs flex items-center justify-center overflow-hidden cursor-pointer"
+            className="relative bg-white rounded-xl border border-neutral-200/80 shadow-md flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
           >
             {rightPage ? (
               <>
                 <img
                   src={rightPage.dataUrl}
                   alt={`Page ${rightPage.pageNumber}`}
-                  className="w-full h-full object-contain pointer-events-none"
+                  className="w-full h-full object-contain pointer-events-none bg-white"
                   loading="eager"
                 />
 
+                {/* Subtle paper lighting gradient */}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/4 via-transparent to-black/4 pointer-events-none" />
+
                 {/* Page number footer */}
-                <div className="absolute bottom-2 right-3 text-[11px] text-slate-400 font-mono bg-white/85 px-1.5 py-0.5 rounded">
+                <div className="absolute bottom-2 right-3 text-[11px] text-slate-400 font-mono bg-white/85 px-1.5 py-0.5 rounded shadow-2xs">
                   {rightPage.pageNumber} / {totalPages}
                 </div>
               </>
             ) : null}
-
-            {/* Mobile Nav Tap Edge Zones Hints */}
-            {canGoPrev && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlePrev();
-                }}
-                className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 border border-neutral-200/80 rounded-full text-slate-700 shadow-xs active:bg-slate-100"
-                title="Previous page"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-            {canGoNext && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleNext();
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 border border-neutral-200/80 rounded-full text-slate-700 shadow-xs active:bg-slate-100"
-                title="Next page"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            )}
           </div>
         )}
       </div>
 
-      {/* Floating navigation chevrons for large screens */}
+      {/* Floating navigation chevrons for large screens only (placed in stage margins, never overlapping text) */}
       <div className="hidden md:flex absolute inset-x-4 top-1/2 -translate-y-1/2 justify-between pointer-events-none max-w-7xl mx-auto">
         <button
           type="button"

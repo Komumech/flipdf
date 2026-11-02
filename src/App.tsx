@@ -4,9 +4,17 @@ import { FlipbookViewer } from './components/FlipbookViewer';
 import { ControlBar } from './components/ControlBar';
 import { ThumbnailsDrawer } from './components/ThumbnailsDrawer';
 import { UploadModal } from './components/UploadModal';
+import { PageAudioDrawer } from './components/PageAudioDrawer';
 import { SAMPLE_DOCUMENTS } from './utils/sampleDocuments';
-import { playPageTurnSound } from './utils/audio';
-import { FlipbookPage, DocumentInfo, ViewMode } from './types';
+import {
+  playPageTurnSound,
+  startBgm,
+  stopBgm,
+  playPageNarration,
+  stopPageNarration,
+} from './utils/audio';
+import { exportStandaloneFlipbook } from './utils/exportBook';
+import { FlipbookPage, DocumentInfo, ViewMode, BgmTrack } from './types';
 
 export default function App() {
   // Initial sample document
@@ -20,15 +28,18 @@ export default function App() {
   const [pages, setPages] = useState<FlipbookPage[]>(defaultSample.pages);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
-  // Settings
+  // Settings & Audio
   const [viewMode, setViewMode] = useState<ViewMode>('auto');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [bgmTrack, setBgmTrack] = useState<BgmTrack>('none');
+  const [isNarrationPlayingState, setIsNarrationPlayingState] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1.0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  // Modals & Panels
+  // Modals & Panels (none are pinned, all render as on-demand slide-overs/drawers)
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
   const [isThumbnailsOpen, setIsThumbnailsOpen] = useState<boolean>(false);
+  const [isPageAudioOpen, setIsPageAudioOpen] = useState<boolean>(false);
 
   // Viewport responsive dual-spread detection
   const [screenWidth, setScreenWidth] = useState<number>(
@@ -46,7 +57,7 @@ export default function App() {
       ? true
       : viewMode === 'single'
       ? false
-      : screenWidth >= 768; // auto mode: dual on tablet landscape, laptops and desktop
+      : screenWidth >= 768; // auto mode: single-page on mobile (<768px), dual on tablet/desktop
 
   // Sound handler
   const handlePlaySound = useCallback(() => {
@@ -62,10 +73,57 @@ export default function App() {
       if (clamped !== currentPage) {
         handlePlaySound();
         setCurrentPage(clamped);
+        stopPageNarration();
+        setIsNarrationPlayingState(false);
       }
     },
     [pages.length, currentPage, handlePlaySound]
   );
+
+  // Background music toggle
+  const handleToggleBgm = () => {
+    if (bgmTrack === 'none') {
+      setBgmTrack('ambient');
+      startBgm('ambient', 0.25);
+    } else {
+      setBgmTrack('none');
+      stopBgm();
+    }
+  };
+
+  // Current page audio narration toggle
+  const currentPageObj = pages.find((p) => p.pageNumber === currentPage);
+  const handleToggleNarration = () => {
+    if (isNarrationPlayingState) {
+      stopPageNarration();
+      setIsNarrationPlayingState(false);
+    } else if (currentPageObj?.audioUrl) {
+      playPageNarration(currentPageObj.audioUrl, () => {
+        setIsNarrationPlayingState(false);
+      });
+      setIsNarrationPlayingState(true);
+    }
+  };
+
+  // Page audio recording & batch upload updates
+  const handleUpdatePageAudio = (pageNumber: number, audioUrl: string | undefined) => {
+    setPages((prev) =>
+      prev.map((p) => (p.pageNumber === pageNumber ? { ...p, audioUrl } : p))
+    );
+  };
+
+  const handleBatchUploadAudio = (updates: { pageNumber: number; audioUrl: string }[]) => {
+    const updateMap = new Map(updates.map((u) => [u.pageNumber, u.audioUrl]));
+    setPages((prev) =>
+      prev.map((p) =>
+        updateMap.has(p.pageNumber) ? { ...p, audioUrl: updateMap.get(p.pageNumber) } : p
+      )
+    );
+  };
+
+  const handleClearAllAudio = () => {
+    setPages((prev) => prev.map((p) => ({ ...p, audioUrl: undefined })));
+  };
 
   // Fullscreen toggle
   const handleToggleFullscreen = () => {
@@ -88,6 +146,18 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Export standalone self-contained HTML book
+  const handleExportBook = () => {
+    exportStandaloneFlipbook(documentInfo, pages, {
+      viewMode,
+      soundEnabled,
+      zoom,
+      bgmTrack,
+      bgmVolume: 0.3,
+      autoPlayNarration: true,
+    });
+  };
+
   // Global Drag & Drop PDF onto application
   useEffect(() => {
     const handleGlobalDragOver = (e: DragEvent) => {
@@ -109,12 +179,16 @@ export default function App() {
 
   // Document loader handler
   const handleLoadDocument = (info: DocumentInfo, newPages: FlipbookPage[]) => {
+    stopPageNarration();
+    setIsNarrationPlayingState(false);
     setDocumentInfo(info);
     setPages(newPages);
     setCurrentPage(1);
     setZoom(1.0);
     handlePlaySound();
   };
+
+  const audioRecordedCount = pages.filter((p) => Boolean(p.audioUrl)).length;
 
   return (
     <div className="h-screen max-h-screen bg-[#FBFBFA] flex flex-col font-sans text-slate-900 antialiased selection:bg-emerald-100 selection:text-emerald-950 overflow-hidden">
@@ -123,15 +197,17 @@ export default function App() {
         documentTitle={documentInfo.title}
         totalPages={pages.length}
         currentPage={currentPage}
-        viewMode={viewMode}
-        isDualSpread={isDualSpread}
         soundEnabled={soundEnabled}
+        bgmTrack={bgmTrack}
+        audioRecordedCount={audioRecordedCount}
         isFullscreen={isFullscreen}
         onToggleSound={() => setSoundEnabled((prev) => !prev)}
+        onToggleBgm={handleToggleBgm}
+        onOpenPageAudio={() => setIsPageAudioOpen(true)}
         onToggleFullscreen={handleToggleFullscreen}
-        onChangeViewMode={(mode) => setViewMode(mode)}
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenSamples={() => setIsUploadOpen(true)}
+        onExportBook={handleExportBook}
       />
 
       {/* Main Tactile Flipbook Stage */}
@@ -152,19 +228,36 @@ export default function App() {
         totalPages={pages.length}
         zoom={zoom}
         isDualSpread={isDualSpread}
+        hasCurrentPageNarration={Boolean(currentPageObj?.audioUrl)}
+        isNarrationPlaying={isNarrationPlayingState}
         onPageChange={handlePageChange}
         onZoomChange={(newZoom) => setZoom(newZoom)}
         onToggleThumbnails={() => setIsThumbnailsOpen((prev) => !prev)}
+        onToggleNarration={handleToggleNarration}
+        onExportBook={handleExportBook}
         isThumbnailsOpen={isThumbnailsOpen}
       />
 
-      {/* Thumbnails Sheet / Drawer */}
+      {/* Thumbnails Sheet / Drawer (On demand) */}
       <ThumbnailsDrawer
         isOpen={isThumbnailsOpen}
         pages={pages}
         currentPage={currentPage}
         onClose={() => setIsThumbnailsOpen(false)}
         onSelectPage={handlePageChange}
+      />
+
+      {/* Page Audio Drawer (Slide-over only on demand, never pinned) */}
+      <PageAudioDrawer
+        isOpen={isPageAudioOpen}
+        onClose={() => setIsPageAudioOpen(false)}
+        pages={pages}
+        currentPage={currentPage}
+        onUpdatePageAudio={handleUpdatePageAudio}
+        onBatchUploadAudio={handleBatchUploadAudio}
+        onClearAllAudio={handleClearAllAudio}
+        onSelectPage={handlePageChange}
+        onExportStandalone={handleExportBook}
       />
 
       {/* Upload & Sample Selector Modal */}
