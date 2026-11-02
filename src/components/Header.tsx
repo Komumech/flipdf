@@ -21,7 +21,7 @@ interface HeaderProps {
   audioRecordedCount: number;
   isFullscreen: boolean;
   onToggleSound: () => void;
-  onToggleBgm: () => void;
+  onOpenBgmModal: () => void;
   onOpenPageAudio: () => void;
   onToggleFullscreen: () => void;
   onOpenUpload: () => void;
@@ -38,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
   audioRecordedCount,
   isFullscreen,
   onToggleSound,
-  onToggleBgm,
+  onOpenBgmModal,
   onOpenPageAudio,
   onToggleFullscreen,
   onOpenUpload,
@@ -110,11 +110,11 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Background Music Toggle */}
+          {/* Background Music Button */}
           <button
             type="button"
-            onClick={onToggleBgm}
-            title={bgmTrack !== 'none' ? 'Mute background music' : 'Play ambient background music'}
+            onClick={onOpenBgmModal}
+            title={bgmTrack !== 'none' ? 'Background music active (Click to configure or upload custom music)' : 'Background music (Click to choose or upload)'}
             className={`p-2 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
               bgmTrack !== 'none'
                 ? 'bg-neutral-900 text-white border-neutral-900'

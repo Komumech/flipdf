@@ -1,23 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
 import { FlipbookViewer } from './components/FlipbookViewer';
 import { ControlBar } from './components/ControlBar';
 import { ThumbnailsDrawer } from './components/ThumbnailsDrawer';
 import { UploadModal } from './components/UploadModal';
 import { PageAudioDrawer } from './components/PageAudioDrawer';
+import { BgmModal } from './components/BgmModal';
 import { SAMPLE_DOCUMENTS } from './utils/sampleDocuments';
 import {
   playPageTurnSound,
   startBgm,
   stopBgm,
-  playPageNarration,
-  stopPageNarration,
+  setBgmVolume as setBgmVolumeUtil,
+  spreadNarration,
+  SpreadAudioTrack,
+  unlockAudio,
 } from './utils/audio';
 import { exportStandaloneFlipbook } from './utils/exportBook';
+import { saveWorkspace, loadWorkspace } from './utils/storage';
 import { FlipbookPage, DocumentInfo, ViewMode, BgmTrack } from './types';
 
 export default function App() {
-  // Initial sample document
   const defaultSample = SAMPLE_DOCUMENTS[0];
   const [documentInfo, setDocumentInfo] = useState<DocumentInfo>({
     id: defaultSample.id,
@@ -32,14 +35,19 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('auto');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [bgmTrack, setBgmTrack] = useState<BgmTrack>('none');
+  const [customBgmUrl, setCustomBgmUrl] = useState<string | undefined>(undefined);
+  const [customBgmName, setCustomBgmName] = useState<string | undefined>(undefined);
+  const [bgmVolume, setBgmVolume] = useState<number>(0.25);
   const [isNarrationPlayingState, setIsNarrationPlayingState] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1.0);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isWorkspaceLoaded, setIsWorkspaceLoaded] = useState<boolean>(false);
 
   // Modals & Panels (none are pinned, all render as on-demand slide-overs/drawers)
   const [isUploadOpen, setIsUploadOpen] = useState<boolean>(false);
   const [isThumbnailsOpen, setIsThumbnailsOpen] = useState<boolean>(false);
   const [isPageAudioOpen, setIsPageAudioOpen] = useState<boolean>(false);
+  const [isBgmModalOpen, setIsBgmModalOpen] = useState<boolean>(false);
 
   // Viewport responsive dual-spread detection
   const [screenWidth, setScreenWidth] = useState<number>(
@@ -59,12 +67,117 @@ export default function App() {
       ? false
       : screenWidth >= 768; // auto mode: single-page on mobile (<768px), dual on tablet/desktop
 
-  // Sound handler
+  // Restore saved workspace & reading position on startup from IndexedDB
+  useEffect(() => {
+    loadWorkspace()
+      .then((saved) => {
+        if (saved && saved.pages && saved.pages.length > 0) {
+          setDocumentInfo(saved.documentInfo);
+          setPages(saved.pages);
+          const clamped = Math.max(1, Math.min(saved.pages.length, saved.currentPage || 1));
+          setCurrentPage(clamped);
+          setViewMode(saved.viewMode || 'auto');
+          setSoundEnabled(saved.soundEnabled !== false);
+          setBgmTrack(saved.bgmTrack || 'none');
+          setZoom(saved.zoom || 1.0);
+
+          if (saved.customBgmUrl) {
+            setCustomBgmUrl(saved.customBgmUrl);
+            setCustomBgmName(saved.customBgmName);
+          }
+
+          if (saved.bgmTrack && saved.bgmTrack !== 'none') {
+            startBgm(saved.bgmTrack, 0.25, saved.customBgmUrl);
+          }
+        }
+        setIsWorkspaceLoaded(true);
+      })
+      .catch(() => {
+        setIsWorkspaceLoaded(true);
+      });
+  }, []);
+
+  // Auto-save changes to IndexedDB (debounced) so reloading keeps all pages, audios & settings
+  useEffect(() => {
+    if (!isWorkspaceLoaded) return;
+    const timer = setTimeout(() => {
+      saveWorkspace({
+        documentInfo,
+        pages,
+        currentPage,
+        viewMode,
+        soundEnabled,
+        bgmTrack,
+        customBgmUrl,
+        customBgmName,
+        zoom,
+        savedAt: Date.now(),
+      });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [
+    documentInfo,
+    pages,
+    currentPage,
+    viewMode,
+    soundEnabled,
+    bgmTrack,
+    customBgmUrl,
+    customBgmName,
+    zoom,
+    isWorkspaceLoaded,
+  ]);
+
+  // Sound handler for flipping pages
   const handlePlaySound = useCallback(() => {
     if (soundEnabled) {
       playPageTurnSound();
     }
   }, [soundEnabled]);
+
+  // Compute active pages on screen for the current spread
+  const { leftPageNum, rightPageNum } = useMemo(() => {
+    if (isDualSpread) {
+      if (currentPage === 1) {
+        return { leftPageNum: null, rightPageNum: 1 };
+      }
+      const left = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+      const right = left + 1 <= pages.length ? left + 1 : null;
+      return { leftPageNum: left, rightPageNum: right };
+    }
+    return { leftPageNum: null, rightPageNum: currentPage };
+  }, [isDualSpread, currentPage, pages.length]);
+
+  const currentSpreadKey = useMemo(() => {
+    return isDualSpread
+      ? `dual_${leftPageNum || 'cover'}_${rightPageNum || 'end'}`
+      : `single_${currentPage}`;
+  }, [isDualSpread, leftPageNum, rightPageNum, currentPage]);
+
+  // Gather audio tracks present on the current visible spread (left and/or right page)
+  const currentSpreadTracks: SpreadAudioTrack[] = useMemo(() => {
+    const visibleNums = isDualSpread
+      ? [leftPageNum, rightPageNum].filter((n): n is number => n !== null && n >= 1 && n <= pages.length)
+      : [currentPage];
+
+    return visibleNums
+      .map((pNum) => {
+        const pageObj = pages.find((p) => p.pageNumber === pNum);
+        return pageObj && pageObj.audioUrl ? { pageNumber: pNum, audioUrl: pageObj.audioUrl } : null;
+      })
+      .filter((t): t is SpreadAudioTrack => t !== null);
+  }, [isDualSpread, leftPageNum, rightPageNum, currentPage, pages]);
+
+  const hasCurrentSpreadNarration = currentSpreadTracks.length > 0;
+
+  // Listen to spread narration state changes
+  useEffect(() => {
+    const unsubscribe = spreadNarration.onStateChange((isPlaying) => {
+      setIsNarrationPlayingState(isPlaying);
+    });
+    return unsubscribe;
+  }, []);
 
   // Page change handler
   const handlePageChange = useCallback(
@@ -73,36 +186,52 @@ export default function App() {
       if (clamped !== currentPage) {
         handlePlaySound();
         setCurrentPage(clamped);
-        stopPageNarration();
-        setIsNarrationPlayingState(false);
+
+        // Notify narration manager of the new spread
+        const nextLeft = isDualSpread ? (clamped === 1 ? null : clamped % 2 === 0 ? clamped : clamped - 1) : null;
+        const nextRight = isDualSpread ? (clamped === 1 ? 1 : ((nextLeft || 0) + 1 <= pages.length ? (nextLeft || 0) + 1 : null)) : clamped;
+        const nextSpreadKey = isDualSpread ? `dual_${nextLeft || 'cover'}_${nextRight || 'end'}` : `single_${clamped}`;
+
+        spreadNarration.onSpreadChanged(nextSpreadKey);
       }
     },
-    [pages.length, currentPage, handlePlaySound]
+    [pages.length, currentPage, handlePlaySound, isDualSpread]
   );
 
-  // Background music toggle
-  const handleToggleBgm = () => {
-    if (bgmTrack === 'none') {
-      setBgmTrack('ambient');
-      startBgm('ambient', 0.25);
-    } else {
+  // Background music selection & custom upload handler
+  const handleSelectBgmTrack = (track: BgmTrack, customUrl?: string, customName?: string) => {
+    unlockAudio();
+    setBgmTrack(track);
+    if (customUrl) {
+      setCustomBgmUrl(customUrl);
+    }
+    if (customName) {
+      setCustomBgmName(customName);
+    }
+    startBgm(track, bgmVolume, customUrl || customBgmUrl);
+  };
+
+  const handleChangeBgmVolume = (vol: number) => {
+    setBgmVolume(vol);
+    setBgmVolumeUtil(vol);
+  };
+
+  const handleRemoveCustomBgm = () => {
+    setCustomBgmUrl(undefined);
+    setCustomBgmName(undefined);
+    if (bgmTrack === 'custom') {
       setBgmTrack('none');
       stopBgm();
     }
   };
 
-  // Current page audio narration toggle
-  const currentPageObj = pages.find((p) => p.pageNumber === currentPage);
+  // Narration playback toggle with resume support:
+  // - On laptop dual-spread: if left has no audio, right plays!
+  // - If both have audio, left plays, then right plays automatically!
+  // - If paused and resumed, it resumes from the EXACT stopped time!
   const handleToggleNarration = () => {
-    if (isNarrationPlayingState) {
-      stopPageNarration();
-      setIsNarrationPlayingState(false);
-    } else if (currentPageObj?.audioUrl) {
-      playPageNarration(currentPageObj.audioUrl, () => {
-        setIsNarrationPlayingState(false);
-      });
-      setIsNarrationPlayingState(true);
-    }
+    unlockAudio();
+    spreadNarration.toggle(currentSpreadTracks, currentSpreadKey, 0);
   };
 
   // Page audio recording & batch upload updates
@@ -122,6 +251,7 @@ export default function App() {
   };
 
   const handleClearAllAudio = () => {
+    spreadNarration.stop();
     setPages((prev) => prev.map((p) => ({ ...p, audioUrl: undefined })));
   };
 
@@ -146,14 +276,15 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  // Export standalone self-contained HTML book
+  // Export standalone self-contained HTML book including custom uploaded BGM
   const handleExportBook = () => {
     exportStandaloneFlipbook(documentInfo, pages, {
       viewMode,
       soundEnabled,
       zoom,
       bgmTrack,
-      bgmVolume: 0.3,
+      bgmVolume,
+      customAudioUrl: customBgmUrl,
       autoPlayNarration: true,
     });
   };
@@ -179,7 +310,7 @@ export default function App() {
 
   // Document loader handler
   const handleLoadDocument = (info: DocumentInfo, newPages: FlipbookPage[]) => {
-    stopPageNarration();
+    spreadNarration.stop();
     setIsNarrationPlayingState(false);
     setDocumentInfo(info);
     setPages(newPages);
@@ -202,7 +333,7 @@ export default function App() {
         audioRecordedCount={audioRecordedCount}
         isFullscreen={isFullscreen}
         onToggleSound={() => setSoundEnabled((prev) => !prev)}
-        onToggleBgm={handleToggleBgm}
+        onOpenBgmModal={() => setIsBgmModalOpen(true)}
         onOpenPageAudio={() => setIsPageAudioOpen(true)}
         onToggleFullscreen={handleToggleFullscreen}
         onOpenUpload={() => setIsUploadOpen(true)}
@@ -228,7 +359,7 @@ export default function App() {
         totalPages={pages.length}
         zoom={zoom}
         isDualSpread={isDualSpread}
-        hasCurrentPageNarration={Boolean(currentPageObj?.audioUrl)}
+        hasCurrentPageNarration={hasCurrentSpreadNarration}
         isNarrationPlaying={isNarrationPlayingState}
         onPageChange={handlePageChange}
         onZoomChange={(newZoom) => setZoom(newZoom)}
@@ -258,6 +389,19 @@ export default function App() {
         onClearAllAudio={handleClearAllAudio}
         onSelectPage={handlePageChange}
         onExportStandalone={handleExportBook}
+      />
+
+      {/* Background Music Configuration & Upload Modal */}
+      <BgmModal
+        isOpen={isBgmModalOpen}
+        onClose={() => setIsBgmModalOpen(false)}
+        currentTrack={bgmTrack}
+        customBgmUrl={customBgmUrl}
+        customBgmName={customBgmName}
+        bgmVolume={bgmVolume}
+        onSelectTrack={handleSelectBgmTrack}
+        onChangeVolume={handleChangeBgmVolume}
+        onRemoveCustom={handleRemoveCustomBgm}
       />
 
       {/* Upload & Sample Selector Modal */}

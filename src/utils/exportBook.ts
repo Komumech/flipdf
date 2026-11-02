@@ -8,6 +8,7 @@ export function exportStandaloneFlipbook(
   const pagesData = pages.map((p) => p.dataUrl);
   const pageAudioData = pages.map((p) => p.audioUrl || null);
   const flipAudioB64 = (typeof window !== 'undefined' && (window as unknown as { FLIP_SOUND_B64?: string }).FLIP_SOUND_B64) || 'flip.mp3';
+  const customBgmB64 = settings.customAudioUrl || null;
 
   const standaloneHTML = `<!DOCTYPE html>
 <html lang="en" class="h-full select-none">
@@ -190,11 +191,11 @@ export function exportStandaloneFlipbook(
     <button class="btn ${settings.soundEnabled ? 'active' : ''}" id="sound-btn" onclick="toggleSound()" title="Toggle Flip Sound">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
-    <!-- Background Music -->
-    <button class="btn" id="bgm-btn" onclick="toggleBgm()" title="Toggle Background Music">
+    <!-- Background Music (Custom uploaded or Synthesizer) -->
+    <button class="btn ${settings.bgmTrack !== 'none' ? 'active' : ''}" id="bgm-btn" onclick="toggleBgm()" title="Toggle Background Music">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
     </button>
-    <!-- Page Narration Toggle -->
+    <!-- Page Narration Toggle with sequential dual-page playback, resume, and natural flip delay -->
     <button class="btn" id="narration-btn" onclick="toggleNarration()" title="Play page audio narration">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
     </button>
@@ -204,12 +205,22 @@ export function exportStandaloneFlipbook(
     const pages = ${JSON.stringify(pagesData)};
     const pageAudios = ${JSON.stringify(pageAudioData)};
     const flipSoundB64 = ${JSON.stringify(flipAudioB64)};
+    const customBgmB64 = ${JSON.stringify(customBgmB64)};
+    const initialBgmTrack = ${JSON.stringify(settings.bgmTrack || 'none')};
+    const docId = ${JSON.stringify(info.id || info.title || 'book')};
+    const storageKey = 'flipdf_read_pos_' + encodeURIComponent(docId);
     
     let pageFlipInstance = null;
     let currentPage = 0;
     let soundEnabled = ${settings.soundEnabled};
     let bgmEnabled = false;
-    let currentNarration = null;
+
+    // Sequential dual-spread narration state with resume
+    let currentNarrationAudio = null;
+    let currentQueue = [];
+    let currentTrackIdx = 0;
+    let currentSpreadKey = '';
+    let pendingStartTimer = null;
 
     const flipAudio = new Audio(flipSoundB64);
     flipAudio.preload = 'auto';
@@ -218,40 +229,149 @@ export function exportStandaloneFlipbook(
       if (!soundEnabled) return;
       try {
         flipAudio.currentTime = 0;
-        flipAudio.volume = 0.6;
+        flipAudio.volume = 0.65;
         flipAudio.play().catch(function(){});
       } catch(e){}
     }
 
-    function playNarrationForPage(idx) {
-      if (currentNarration) {
-        currentNarration.pause();
-        currentNarration = null;
+    // Identifies audio tracks visible on the current screen (left & right on laptop, single on mobile)
+    function getVisibleSpreadTracks() {
+      const isMobile = window.innerWidth < 768;
+      const tracks = [];
+
+      if (isMobile) {
+        if (pageAudios[currentPage]) {
+          tracks.push({ pageNum: currentPage + 1, url: pageAudios[currentPage] });
+        }
+      } else {
+        // Desktop dual spread: page 0 is standalone cover
+        if (currentPage === 0) {
+          if (pageAudios[0]) {
+            tracks.push({ pageNum: 1, url: pageAudios[0] });
+          }
+        } else {
+          const leftIdx = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+          const rightIdx = (leftIdx + 1 < pages.length) ? leftIdx + 1 : null;
+
+          if (leftIdx !== null && pageAudios[leftIdx]) {
+            tracks.push({ pageNum: leftIdx + 1, url: pageAudios[leftIdx] });
+          }
+          if (rightIdx !== null && pageAudios[rightIdx]) {
+            tracks.push({ pageNum: rightIdx + 1, url: pageAudios[rightIdx] });
+          }
+        }
       }
-      const audioUrl = pageAudios[idx];
+      return tracks;
+    }
+
+    function toggleNarration(delayMs) {
+      if (pendingStartTimer) {
+        clearTimeout(pendingStartTimer);
+        pendingStartTimer = null;
+      }
+
+      const tracks = getVisibleSpreadTracks();
       const btn = document.getElementById('narration-btn');
-      if (!audioUrl) {
+
+      if (tracks.length === 0) {
         if (btn) btn.classList.remove('active');
         return;
       }
-      currentNarration = new Audio(audioUrl);
-      currentNarration.onended = function() {
-        if (btn) btn.classList.remove('active');
-      };
-      currentNarration.play().then(function() {
-        if (btn) btn.classList.add('active');
-      }).catch(function() {
-        if (btn) btn.classList.remove('active');
-      });
+
+      const spreadKey = 'spread_' + currentPage;
+
+      // If already active on this spread: pause/resume without restarting at 0
+      if (currentNarrationAudio && currentSpreadKey === spreadKey) {
+        if (!currentNarrationAudio.paused) {
+          // Pause and retain timestamp
+          currentNarrationAudio.pause();
+          if (btn) btn.classList.remove('active');
+          return;
+        } else {
+          // Resume from exact timestamp where paused!
+          currentNarrationAudio.play().then(function() {
+            if (btn) btn.classList.add('active');
+          }).catch(function(){});
+          return;
+        }
+      }
+
+      // Fresh start on this spread
+      stopNarration();
+      currentQueue = tracks;
+      currentSpreadKey = spreadKey;
+      currentTrackIdx = 0;
+      playQueueTrack(0, 0, delayMs || 0);
     }
 
-    function toggleNarration() {
-      if (currentNarration && !currentNarration.paused) {
-        currentNarration.pause();
-        document.getElementById('narration-btn')?.classList.remove('active');
-      } else {
-        playNarrationForPage(currentPage);
+    function playQueueTrack(idx, startTime, delayMs) {
+      const btn = document.getElementById('narration-btn');
+      if (idx >= currentQueue.length) {
+        stopNarration();
+        return;
       }
+
+      currentTrackIdx = idx;
+      const track = currentQueue[idx];
+
+      if (currentNarrationAudio) {
+        currentNarrationAudio.pause();
+        currentNarrationAudio = null;
+      }
+
+      const audio = new Audio(track.url);
+      if (startTime > 0) {
+        audio.currentTime = startTime;
+      }
+
+      audio.onended = function() {
+        // Natural 350ms breath between pages on a dual spread
+        if (currentTrackIdx + 1 < currentQueue.length) {
+          playQueueTrack(currentTrackIdx + 1, 0, 350);
+        } else {
+          stopNarration();
+        }
+      };
+
+      audio.onerror = function() {
+        if (currentTrackIdx + 1 < currentQueue.length) {
+          playQueueTrack(currentTrackIdx + 1, 0, 350);
+        } else {
+          stopNarration();
+        }
+      };
+
+      const startAction = function() {
+        pendingStartTimer = null;
+        currentNarrationAudio = audio;
+        audio.play().then(function() {
+          if (btn) btn.classList.add('active');
+        }).catch(function() {
+          if (btn) btn.classList.remove('active');
+        });
+      };
+
+      if (delayMs && delayMs > 0) {
+        pendingStartTimer = setTimeout(startAction, delayMs);
+      } else {
+        startAction();
+      }
+    }
+
+    function stopNarration() {
+      if (pendingStartTimer) {
+        clearTimeout(pendingStartTimer);
+        pendingStartTimer = null;
+      }
+      if (currentNarrationAudio) {
+        currentNarrationAudio.pause();
+        currentNarrationAudio = null;
+      }
+      currentQueue = [];
+      currentTrackIdx = 0;
+      currentSpreadKey = '';
+      const btn = document.getElementById('narration-btn');
+      if (btn) btn.classList.remove('active');
     }
 
     function toggleSound() {
@@ -260,20 +380,49 @@ export function exportStandaloneFlipbook(
       if (soundEnabled) playFlipSound();
     }
 
-    // Synthesizer background music
+    // Background music (supports custom uploaded BGM audio file or synthesizer)
+    let customBgmAudio = null;
     let audioCtx = null;
     let bgmGain = null;
     let bgmOscs = [];
+
     function toggleBgm() {
       bgmEnabled = !bgmEnabled;
       const btn = document.getElementById('bgm-btn');
       if (bgmEnabled) {
         if (btn) btn.classList.add('active');
-        startSynthesizerBgm();
+        if (customBgmB64) {
+          playCustomBgm();
+        } else {
+          startSynthesizerBgm();
+        }
       } else {
         if (btn) btn.classList.remove('active');
-        stopSynthesizerBgm();
+        stopBgm();
       }
+    }
+
+    function playCustomBgm() {
+      stopSynthesizerBgm();
+      if (customBgmAudio) {
+        customBgmAudio.pause();
+        customBgmAudio = null;
+      }
+      try {
+        customBgmAudio = new Audio(customBgmB64);
+        customBgmAudio.loop = true;
+        customBgmAudio.volume = 0.28;
+        customBgmAudio.play().catch(function(){});
+      } catch(e){}
+    }
+
+    function stopBgm() {
+      if (customBgmAudio) {
+        customBgmAudio.pause();
+        customBgmAudio.currentTime = 0;
+        customBgmAudio = null;
+      }
+      stopSynthesizerBgm();
     }
 
     function startSynthesizerBgm() {
@@ -351,7 +500,6 @@ export function exportStandaloneFlipbook(
         const aspect = (firstImg.width && firstImg.height) ? (firstImg.width / firstImg.height) : (1 / 1.38);
         let pageW, pageH;
         if (isMobile) {
-          // In mobile portrait mode: maximize page width and height
           pageW = Math.floor(availW);
           pageH = Math.floor(pageW / aspect);
           if (pageH > availH) {
@@ -359,7 +507,6 @@ export function exportStandaloneFlipbook(
             pageW = Math.floor(pageH * aspect);
           }
         } else {
-          // Dual spread on desktop / laptop
           pageH = Math.min(availH, 800);
           pageW = Math.floor(pageH * aspect);
           if (pageW * 2 > availW) {
@@ -400,25 +547,51 @@ export function exportStandaloneFlipbook(
         pageFlipInstance.loadFromHTML(els);
         attachTouchSwipe(document.getElementById('stage-viewport'));
 
+        // Restore saved reading position from localStorage on page reload
+        try {
+          const savedPos = localStorage.getItem(storageKey);
+          if (savedPos !== null) {
+            const p = parseInt(savedPos, 10);
+            if (!isNaN(p) && p > 0 && p < pages.length) {
+              setTimeout(function() {
+                try {
+                  pageFlipInstance.flip(p, 'instant');
+                } catch(e) {
+                  try { pageFlipInstance.turnToPage(p); } catch(err){}
+                }
+              }, 120);
+            }
+          }
+        } catch(e){}
+
         pageFlipInstance.on('flip', function(e) {
           currentPage = e.data;
+          try {
+            localStorage.setItem(storageKey, String(currentPage));
+          } catch(e){}
+
           document.getElementById('page-counter').innerText = (currentPage + 1) + ' / ' + pages.length;
           document.getElementById('btn-prev').disabled = currentPage <= 0;
           document.getElementById('btn-next').disabled = currentPage >= pages.length - 1;
           playFlipSound();
-          if (pageAudios[currentPage]) {
-            playNarrationForPage(currentPage);
-          } else if (currentNarration) {
-            currentNarration.pause();
-            document.getElementById('narration-btn')?.classList.remove('active');
+
+          const newSpreadKey = 'spread_' + currentPage;
+          if (currentSpreadKey !== newSpreadKey) {
+            stopNarration();
           }
         });
       };
       firstImg.src = pages[0];
 
-      // Unlock audio on initial user touch
+      // Unlock audio on initial user touch or click
       const unlock = function() {
-        try { flipAudio.volume = 0.6; flipAudio.play().then(function(){ flipAudio.pause(); flipAudio.currentTime = 0; }).catch(function(){}); } catch(e){}
+        try {
+          flipAudio.volume = 0.65;
+          flipAudio.play().then(function(){
+            flipAudio.pause();
+            flipAudio.currentTime = 0;
+          }).catch(function(){});
+        } catch(e){}
       };
       document.addEventListener('touchstart', unlock, { once: true });
       document.addEventListener('click', unlock, { once: true });

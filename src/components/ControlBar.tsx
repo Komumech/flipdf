@@ -106,7 +106,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
             <button
               type="button"
               onClick={onToggleNarration}
-              className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
+              className={`flex items-center gap-1.5 py-2 px-3 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer whitespace-nowrap truncate ${
                 isNarrationPlaying
                   ? 'bg-emerald-600 text-white border-emerald-600'
                   : 'bg-emerald-50 text-emerald-800 border-emerald-200/80 hover:bg-emerald-100'
@@ -118,7 +118,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               ) : (
                 <Headphones className="w-3.5 h-3.5" />
               )}
-              <span className="hidden md:inline">
+              <span className="hidden md:inline whitespace-nowrap truncate">
                 {isNarrationPlaying ? 'Pause' : 'Play Narration'}
               </span>
             </button>
