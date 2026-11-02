@@ -109,15 +109,69 @@ export function playPageTurnSound(volume = 0.65): void {
 // BACKGROUND MUSIC (SYNTHESIZER & CUSTOM)
 // ==========================================
 
+let customBgmTargetVolume = 0.25;
+let customBgmFadeTimer: number | null = null;
+const BGM_FADE_DURATION = 2.5; // seconds for smooth fade in & fade out
+
+function clearCustomBgmFadeTimer(): void {
+  if (customBgmFadeTimer !== null) {
+    window.clearInterval(customBgmFadeTimer);
+    customBgmFadeTimer = null;
+  }
+}
+
+function updateCustomBgmFade(): void {
+  if (!customBgmEl || customBgmEl.paused) return;
+  const dur = customBgmEl.duration;
+  if (!dur || isNaN(dur) || dur <= 0) return;
+
+  const fadeDur = Math.min(BGM_FADE_DURATION, dur / 3);
+  const ct = customBgmEl.currentTime;
+
+  // When reaching the end edge, loop back cleanly
+  if (ct >= dur - 0.08) {
+    customBgmEl.currentTime = 0;
+    customBgmEl.volume = 0;
+    customBgmEl.play().catch(() => {});
+    return;
+  }
+
+  if (ct < fadeDur) {
+    // Fade in: from 0 up to customBgmTargetVolume
+    const factor = Math.max(0, Math.min(1, ct / fadeDur));
+    customBgmEl.volume = Math.max(0, Math.min(1, customBgmTargetVolume * factor));
+  } else if (dur - ct <= fadeDur) {
+    // Fade out: from customBgmTargetVolume down to 0
+    const remaining = Math.max(0, dur - ct);
+    const factor = Math.max(0, Math.min(1, remaining / fadeDur));
+    customBgmEl.volume = Math.max(0, Math.min(1, customBgmTargetVolume * factor));
+  } else {
+    // Steady playback
+    customBgmEl.volume = customBgmTargetVolume;
+  }
+}
+
 export function startBgm(track: 'none' | 'ambient' | 'lofi' | 'zen' | 'custom', volume = 0.25, customAudioUrl?: string): void {
   stopBgm();
   if (track === 'none') return;
+  customBgmTargetVolume = Math.max(0, Math.min(1, volume));
 
   if (track === 'custom' && customAudioUrl) {
     try {
       customBgmEl = new Audio(customAudioUrl);
-      customBgmEl.loop = true;
-      customBgmEl.volume = Math.max(0, Math.min(1, volume));
+      customBgmEl.loop = false; // We handle loop seamlessly with fade-out and fade-in
+      customBgmEl.volume = 0; // Starts at 0 to smoothly fade in
+
+      customBgmEl.onended = () => {
+        if (!customBgmEl) return;
+        customBgmEl.currentTime = 0;
+        customBgmEl.volume = 0;
+        customBgmEl.play().catch(() => {});
+      };
+
+      customBgmEl.ontimeupdate = updateCustomBgmFade;
+      customBgmFadeTimer = window.setInterval(updateCustomBgmFade, 50);
+
       customBgmEl.play().catch(() => {});
     } catch {}
     return;
@@ -156,6 +210,7 @@ export function startBgm(track: 'none' | 'ambient' | 'lofi' | 'zen' | 'custom', 
 }
 
 export function stopBgm(): void {
+  clearCustomBgmFadeTimer();
   if (customBgmEl) {
     customBgmEl.pause();
     customBgmEl.currentTime = 0;
@@ -173,11 +228,12 @@ export function stopBgm(): void {
 }
 
 export function setBgmVolume(volume: number): void {
+  customBgmTargetVolume = Math.max(0, Math.min(1, volume));
   if (bgmGainNode && audioContext) {
     bgmGainNode.gain.setValueAtTime(volume * 0.12, audioContext.currentTime);
   }
   if (customBgmEl) {
-    customBgmEl.volume = Math.max(0, Math.min(1, volume));
+    updateCustomBgmFade();
   }
 }
 

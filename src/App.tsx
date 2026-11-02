@@ -6,6 +6,7 @@ import { ThumbnailsDrawer } from './components/ThumbnailsDrawer';
 import { UploadModal } from './components/UploadModal';
 import { PageAudioDrawer } from './components/PageAudioDrawer';
 import { BgmModal } from './components/BgmModal';
+import { ExportCompletionModal } from './components/ExportCompletionModal';
 import { SAMPLE_DOCUMENTS } from './utils/sampleDocuments';
 import {
   playPageTurnSound,
@@ -48,6 +49,8 @@ export default function App() {
   const [isThumbnailsOpen, setIsThumbnailsOpen] = useState<boolean>(false);
   const [isPageAudioOpen, setIsPageAudioOpen] = useState<boolean>(false);
   const [isBgmModalOpen, setIsBgmModalOpen] = useState<boolean>(false);
+  const [isExportCompleteOpen, setIsExportCompleteOpen] = useState<boolean>(false);
+  const [exportedFileName, setExportedFileName] = useState<string>('');
 
   // Viewport responsive dual-spread detection
   const [screenWidth, setScreenWidth] = useState<number>(
@@ -278,7 +281,7 @@ export default function App() {
 
   // Export standalone self-contained HTML book including custom uploaded BGM
   const handleExportBook = () => {
-    exportStandaloneFlipbook(documentInfo, pages, {
+    const fileName = exportStandaloneFlipbook(documentInfo, pages, {
       viewMode,
       soundEnabled,
       zoom,
@@ -287,6 +290,8 @@ export default function App() {
       customAudioUrl: customBgmUrl,
       autoPlayNarration: true,
     });
+    setExportedFileName(fileName);
+    setIsExportCompleteOpen(true);
   };
 
   // Global Drag & Drop PDF onto application
@@ -409,6 +414,14 @@ export default function App() {
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         onLoadDocument={handleLoadDocument}
+      />
+
+      {/* Export "How to Use" Explainer Modal */}
+      <ExportCompletionModal
+        isOpen={isExportCompleteOpen}
+        onClose={() => setIsExportCompleteOpen(false)}
+        fileName={exportedFileName || `${documentInfo.title.replace(/\s+/g, '_')}_flipdf_book.html`}
+        totalPages={pages.length}
       />
     </div>
   );

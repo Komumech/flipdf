@@ -83,10 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Sample Publications */}
           <button
             onClick={onOpenSamples}
-            className="hidden lg:inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium text-slate-700 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
+            className="hidden lg:inline-flex items-center gap-2 py-2.5 px-3.5 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-neutral-200/90 rounded-xl hover:border-slate-400 transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
             title="Browse sample publications"
           >
-            <BookOpen className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <BookOpen className="w-4 h-4 text-slate-500 shrink-0" />
             <span>Samples</span>
           </button>
 
@@ -94,17 +94,17 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onOpenPageAudio}
-            className={`inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
+            className={`inline-flex items-center gap-2 py-2.5 px-3.5 text-xs sm:text-sm font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
               audioRecordedCount > 0
                 ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                : 'bg-white text-slate-700 border-neutral-200/80 hover:border-slate-400'
+                : 'bg-white text-slate-700 border-neutral-200/90 hover:border-slate-400'
             }`}
             title="Manage page audio narrations"
           >
-            <Mic className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+            <Mic className="w-4 h-4 text-slate-600 shrink-0" />
             <span className="hidden xs:inline whitespace-nowrap">Page Audio</span>
             {audioRecordedCount > 0 && (
-              <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-semibold px-1.5 py-0.2 rounded-full">
+              <span className="text-[11px] bg-emerald-200/80 text-emerald-900 font-semibold px-2 py-0.5 rounded-full">
                 {audioRecordedCount}
               </span>
             )}
@@ -115,13 +115,13 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onOpenBgmModal}
             title={bgmTrack !== 'none' ? 'Background music active (Click to configure or upload custom music)' : 'Background music (Click to choose or upload)'}
-            className={`p-2 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
+            className={`p-2.5 text-xs font-medium rounded-xl border transition-colors duration-150 cursor-pointer ${
               bgmTrack !== 'none'
                 ? 'bg-neutral-900 text-white border-neutral-900'
-                : 'bg-white text-slate-600 border-neutral-200/80 hover:border-slate-400'
+                : 'bg-white text-slate-600 border-neutral-200/90 hover:border-slate-400'
             }`}
           >
-            <Music2 className="w-4 h-4 shrink-0" />
+            <Music2 className="w-4.5 h-4.5 shrink-0" />
           </button>
 
           {/* Page Turn Sound Toggle */}
@@ -129,12 +129,12 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onToggleSound}
             title={soundEnabled ? 'Mute page turn sound' : 'Enable flip sound (flip.mp3)'}
-            className="p-2 text-xs font-medium text-slate-600 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
+            className="p-2.5 text-xs font-medium text-slate-600 bg-white border border-neutral-200/90 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
           >
             {soundEnabled ? (
-              <Volume2 className="w-4 h-4 text-emerald-700 shrink-0" />
+              <Volume2 className="w-4.5 h-4.5 text-emerald-700 shrink-0" />
             ) : (
-              <VolumeX className="w-4 h-4 text-slate-400 shrink-0" />
+              <VolumeX className="w-4.5 h-4.5 text-slate-400 shrink-0" />
             )}
           </button>
 
@@ -143,12 +143,12 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={onToggleFullscreen}
             title={isFullscreen ? 'Exit fullscreen' : 'View full screen'}
-            className="hidden sm:inline-flex p-2 text-xs font-medium text-slate-600 bg-white border border-neutral-200/80 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
+            className="hidden sm:inline-flex p-2.5 text-xs font-medium text-slate-600 bg-white border border-neutral-200/90 rounded-xl hover:border-slate-400 transition-colors duration-150 cursor-pointer"
           >
             {isFullscreen ? (
-              <Minimize2 className="w-4 h-4 text-slate-700" />
+              <Minimize2 className="w-4.5 h-4.5 text-slate-700" />
             ) : (
-              <Maximize2 className="w-4 h-4 text-slate-700" />
+              <Maximize2 className="w-4.5 h-4.5 text-slate-700" />
             )}
           </button>
 
@@ -156,20 +156,20 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onExportBook}
-            className="hidden sm:inline-flex items-center gap-1.5 py-2 px-3 text-xs font-medium text-slate-800 bg-white border border-neutral-300 hover:border-neutral-400 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
+            className="hidden sm:inline-flex items-center gap-2 py-2.5 px-3.5 text-xs sm:text-sm font-medium text-slate-800 bg-white border border-neutral-300 hover:border-neutral-400 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer"
             title="Download standalone self-contained flipbook"
           >
-            <Download className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+            <Download className="w-4 h-4 text-slate-700 shrink-0" />
             <span>Export Book</span>
           </button>
 
           {/* Upload PDF CTA */}
           <button
             onClick={onOpenUpload}
-            className="flex items-center gap-1.5 py-2 px-3 sm:px-4 text-xs font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer shadow-xs"
+            className="flex items-center gap-2 py-2.5 px-3.5 sm:px-4.5 text-xs sm:text-sm font-medium text-white bg-neutral-900 hover:bg-neutral-800 rounded-xl transition-colors duration-150 whitespace-nowrap truncate cursor-pointer shadow-xs"
             title="Upload any PDF to convert to a flipbook"
           >
-            <Upload className="w-3.5 h-3.5 shrink-0" />
+            <Upload className="w-4 h-4 shrink-0" />
             <span className="hidden xs:inline">Upload PDF</span>
             <span className="xs:hidden">Upload</span>
           </button>

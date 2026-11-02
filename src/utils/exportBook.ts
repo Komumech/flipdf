@@ -4,7 +4,7 @@ export function exportStandaloneFlipbook(
   info: DocumentInfo,
   pages: FlipbookPage[],
   settings: FlipbookSettings
-): void {
+): string {
   const pagesData = pages.map((p) => p.dataUrl);
   const pageAudioData = pages.map((p) => p.audioUrl || null);
   const flipAudioB64 = (typeof window !== 'undefined' && (window as unknown as { FLIP_SOUND_B64?: string }).FLIP_SOUND_B64) || 'flip.mp3';
@@ -65,18 +65,18 @@ export function exportStandaloneFlipbook(
     /* Floating Bottom Action Bar - Single-Line Guarantee */
     .floating-bar {
       position: fixed;
-      bottom: 1.25rem;
+      bottom: 1.5rem;
       left: 50%;
       transform: translateX(-50%);
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(226, 232, 240, 0.85);
+      gap: 0.5rem;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(226, 232, 240, 0.9);
       border-radius: 9999px;
-      padding: 0.35rem 0.65rem;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+      padding: 0.45rem 0.85rem;
+      box-shadow: 0 12px 28px -5px rgba(0, 0, 0, 0.1);
       z-index: 50;
       white-space: nowrap !important;
       max-width: calc(100vw - 1.5rem);
@@ -92,9 +92,11 @@ export function exportStandaloneFlipbook(
       border: none;
       outline: none;
       cursor: pointer;
-      padding: 0.45rem;
+      padding: 0.55rem;
+      min-width: 38px;
+      min-height: 38px;
       border-radius: 9999px;
-      color: #475569;
+      color: #334155;
       transition: all 0.15s ease;
       white-space: nowrap !important;
     }
@@ -111,10 +113,10 @@ export function exportStandaloneFlipbook(
       color: #ffffff;
     }
     .page-indicator {
-      font-size: 0.75rem;
-      font-weight: 500;
+      font-size: 0.85rem;
+      font-weight: 600;
       color: #334155;
-      padding: 0 0.45rem;
+      padding: 0 0.6rem;
       font-variant-numeric: tabular-nums;
       white-space: nowrap !important;
       display: inline-block;
@@ -126,12 +128,12 @@ export function exportStandaloneFlipbook(
       position: absolute;
       top: 50%;
       transform: translateY(-50%);
-      width: 2.75rem;
-      height: 2.75rem;
+      width: 3.25rem;
+      height: 3.25rem;
       border-radius: 9999px;
       background: rgba(255, 255, 255, 0.95);
       border: 1px solid rgba(226, 232, 240, 0.9);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -140,7 +142,7 @@ export function exportStandaloneFlipbook(
       z-index: 30;
       transition: all 0.15s ease;
     }
-    .turn-btn:hover { background: #ffffff; box-shadow: 0 6px 16px rgba(0,0,0,0.1); }
+    .turn-btn:hover { background: #ffffff; box-shadow: 0 8px 20px rgba(0,0,0,0.12); }
     .turn-btn:active { transform: translateY(-50%) scale(0.95); }
     .turn-btn-prev { left: 1.5rem; }
     .turn-btn-next { right: 1.5rem; }
@@ -151,16 +153,21 @@ export function exportStandaloneFlipbook(
         display: none !important;
       }
       .page-stage {
-        padding: 0.25rem 0.25rem 4.5rem 0.25rem !important;
+        padding: 0.25rem 0.25rem 4.75rem 0.25rem !important;
       }
       .floating-bar {
-        bottom: 0.75rem;
-        padding: 0.25rem 0.5rem;
-        gap: 0.25rem;
+        bottom: 1rem;
+        padding: 0.4rem 0.7rem;
+        gap: 0.35rem;
+      }
+      .btn {
+        padding: 0.5rem;
+        min-width: 36px;
+        min-height: 36px;
       }
       .page-indicator {
-        font-size: 0.75rem;
-        padding: 0 0.35rem;
+        font-size: 0.8rem;
+        padding: 0 0.45rem;
       }
     }
   </style>
@@ -169,10 +176,10 @@ export function exportStandaloneFlipbook(
 
   <div class="page-stage" id="stage-viewport">
     <button class="turn-btn turn-btn-prev" onclick="turnPrev()" aria-label="Previous page">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
     </button>
     <button class="turn-btn turn-btn-next" onclick="turnNext()" aria-label="Next page">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
     </button>
     <div id="flipbook-root" class="page-flip-container"></div>
   </div>
@@ -180,24 +187,24 @@ export function exportStandaloneFlipbook(
   <!-- Bottom Floating Reader Bar with strict single-line text -->
   <div class="floating-bar">
     <button class="btn" onclick="turnPrev()" id="btn-prev" title="Previous page">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
     </button>
     <span class="page-indicator" id="page-counter">1 / ${pagesData.length}</span>
     <button class="btn" onclick="turnNext()" id="btn-next" title="Next page">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
     </button>
-    <div style="width: 1px; height: 16px; background: #e2e8f0; margin: 0 2px;"></div>
+    <div style="width: 1px; height: 18px; background: #e2e8f0; margin: 0 3px;"></div>
     <!-- Sound Toggle -->
     <button class="btn ${settings.soundEnabled ? 'active' : ''}" id="sound-btn" onclick="toggleSound()" title="Toggle Flip Sound">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
     </button>
     <!-- Background Music (Custom uploaded or Synthesizer) -->
     <button class="btn ${settings.bgmTrack !== 'none' ? 'active' : ''}" id="bgm-btn" onclick="toggleBgm()" title="Toggle Background Music">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
     </button>
     <!-- Page Narration Toggle with sequential dual-page playback, resume, and natural flip delay -->
     <button class="btn" id="narration-btn" onclick="toggleNarration()" title="Play page audio narration">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
     </button>
   </div>
 
@@ -402,21 +409,75 @@ export function exportStandaloneFlipbook(
       }
     }
 
+    let customBgmAudio = null;
+    let customBgmFadeTimer = null;
+    const BGM_FADE_DURATION = 2.5;
+    const BGM_TARGET_VOLUME = 0.28;
+
     function playCustomBgm() {
       stopSynthesizerBgm();
       if (customBgmAudio) {
         customBgmAudio.pause();
         customBgmAudio = null;
       }
+      if (customBgmFadeTimer) {
+        clearInterval(customBgmFadeTimer);
+        customBgmFadeTimer = null;
+      }
       try {
         customBgmAudio = new Audio(customBgmB64);
-        customBgmAudio.loop = true;
-        customBgmAudio.volume = 0.28;
+        customBgmAudio.loop = false; // Controlled loop with fade-out and fade-in
+        customBgmAudio.volume = 0; // Starts at 0 to smoothly fade in
+
+        function updateFade() {
+          if (!customBgmAudio || customBgmAudio.paused) return;
+          const dur = customBgmAudio.duration;
+          if (!dur || isNaN(dur) || dur <= 0) return;
+          const fadeDur = Math.min(BGM_FADE_DURATION, dur / 3);
+          const ct = customBgmAudio.currentTime;
+
+          // When reaching the end boundary, loop back to 0
+          if (ct >= dur - 0.08) {
+            customBgmAudio.currentTime = 0;
+            customBgmAudio.volume = 0;
+            customBgmAudio.play().catch(function(){});
+            return;
+          }
+
+          if (ct < fadeDur) {
+            // Fade-in phase
+            const factor = Math.max(0, Math.min(1, ct / fadeDur));
+            customBgmAudio.volume = Math.max(0, Math.min(1, BGM_TARGET_VOLUME * factor));
+          } else if (dur - ct <= fadeDur) {
+            // Fade-out phase
+            const remaining = Math.max(0, dur - ct);
+            const factor = Math.max(0, Math.min(1, remaining / fadeDur));
+            customBgmAudio.volume = Math.max(0, Math.min(1, BGM_TARGET_VOLUME * factor));
+          } else {
+            // Steady volume
+            customBgmAudio.volume = BGM_TARGET_VOLUME;
+          }
+        }
+
+        customBgmAudio.onended = function() {
+          if (!customBgmAudio) return;
+          customBgmAudio.currentTime = 0;
+          customBgmAudio.volume = 0;
+          customBgmAudio.play().catch(function(){});
+        };
+
+        customBgmAudio.ontimeupdate = updateFade;
+        customBgmFadeTimer = setInterval(updateFade, 50);
+
         customBgmAudio.play().catch(function(){});
       } catch(e){}
     }
 
     function stopBgm() {
+      if (customBgmFadeTimer) {
+        clearInterval(customBgmFadeTimer);
+        customBgmFadeTimer = null;
+      }
       if (customBgmAudio) {
         customBgmAudio.pause();
         customBgmAudio.currentTime = 0;
@@ -600,11 +661,13 @@ export function exportStandaloneFlipbook(
 </body>
 </html>`;
 
+  const fileName = `${info.title.replace(/\s+/g, '_')}_flipdf_book.html`;
   const blob = new Blob([standaloneHTML], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${info.title.replace(/\s+/g, '_')}_flipdf_book.html`;
+  a.download = fileName;
   a.click();
   URL.revokeObjectURL(url);
+  return fileName;
 }

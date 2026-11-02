@@ -160,29 +160,29 @@ export const PageAudioDrawer: React.FC<PageAudioDrawerProps> = ({
           {/* Drawer Header */}
           <div className="p-4 sm:p-5 border-b border-neutral-200/70 bg-white flex items-center justify-between shrink-0">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 rounded-xl bg-neutral-100 text-neutral-800 flex items-center justify-center shrink-0">
-                <Music2 className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-xl bg-neutral-100 text-neutral-800 flex items-center justify-center shrink-0">
+                <Music2 className="w-4.5 h-4.5" />
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <h2 className="text-sm font-semibold text-slate-900">
+                  <h2 className="text-sm sm:text-base font-semibold text-slate-900">
                     Page Audio Narration
                   </h2>
-                  <span className="text-[10px] bg-neutral-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-[11px] bg-neutral-100 text-slate-600 px-2.5 py-0.5 rounded-full font-medium">
                     {recordedCount} of {totalPages} pages
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   Upload or record voice for each page (included in exported book)
                 </p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 text-neutral-400 hover:text-neutral-800 rounded-lg hover:bg-neutral-100 transition-colors cursor-pointer"
+              className="p-2 text-neutral-400 hover:text-neutral-800 rounded-xl hover:bg-neutral-100 transition-colors cursor-pointer"
               aria-label="Close drawer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-5 h-5" />
             </button>
           </div>
 
@@ -193,10 +193,10 @@ export const PageAudioDrawer: React.FC<PageAudioDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => setIsBatchMapperOpen(true)}
-                className="inline-flex items-center space-x-1.5 text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white px-3 py-1.5 rounded-xl transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+                className="inline-flex items-center space-x-2 text-xs sm:text-sm font-medium bg-neutral-900 hover:bg-neutral-800 text-white px-3.5 py-2 rounded-xl transition-colors cursor-pointer whitespace-nowrap shadow-xs"
                 title="Select start page, skip non-audio pages, and verify audio match"
               >
-                <ListFilter className="w-3.5 h-3.5" />
+                <ListFilter className="w-4 h-4" />
                 <span>Batch Audio Mapper</span>
               </button>
 
@@ -205,17 +205,17 @@ export const PageAudioDrawer: React.FC<PageAudioDrawerProps> = ({
                 <button
                   type="button"
                   onClick={onClearAllAudio}
-                  className="inline-flex items-center space-x-1 text-xs text-neutral-500 hover:text-red-700 px-2.5 py-1.5 rounded-xl hover:bg-neutral-100 transition-colors whitespace-nowrap cursor-pointer"
+                  className="inline-flex items-center space-x-1.5 text-xs sm:text-sm text-neutral-500 hover:text-red-700 px-3 py-2 rounded-xl hover:bg-neutral-100 transition-colors whitespace-nowrap cursor-pointer"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                   <span>Clear All</span>
                 </button>
               )}
             </div>
 
             {/* Jump to Page */}
-            <form onSubmit={handleJumpSubmit} className="flex items-center space-x-1.5 bg-neutral-50 border border-neutral-200/80 rounded-xl px-2.5 py-1 text-xs text-neutral-600 focus-within:border-neutral-400">
-              <Search className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+            <form onSubmit={handleJumpSubmit} className="flex items-center space-x-2 bg-neutral-50 border border-neutral-200/80 rounded-xl px-3 py-1.5 text-xs text-neutral-600 focus-within:border-neutral-400">
+              <Search className="w-4 h-4 text-neutral-400 shrink-0" />
               <input
                 type="number"
                 min={1}
@@ -223,7 +223,7 @@ export const PageAudioDrawer: React.FC<PageAudioDrawerProps> = ({
                 value={jumpPage}
                 onChange={(e) => setJumpPage(e.target.value)}
                 placeholder="Jump to page…"
-                className="w-24 bg-transparent outline-none text-xs text-neutral-800"
+                className="w-24 bg-transparent outline-none text-xs sm:text-sm text-neutral-800"
               />
             </form>
           </div>
@@ -374,20 +374,20 @@ export const PageAudioDrawer: React.FC<PageAudioDrawerProps> = ({
           </div>
 
           {/* Drawer Footer */}
-          <div className="p-4 border-t border-neutral-200/70 bg-white flex items-center justify-between shrink-0">
+          <div className="p-4 sm:p-5 border-t border-neutral-200/70 bg-white flex items-center justify-between shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
+              className="px-5 py-2.5 text-xs sm:text-sm font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors whitespace-nowrap cursor-pointer"
             >
               Done
             </button>
             <button
               type="button"
               onClick={onExportStandalone}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-medium bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl transition-colors whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center space-x-2 px-5 py-2.5 text-xs sm:text-sm font-medium bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl transition-colors whitespace-nowrap cursor-pointer shadow-xs"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-4 h-4" />
               <span>Export Book with Audio</span>
             </button>
           </div>
